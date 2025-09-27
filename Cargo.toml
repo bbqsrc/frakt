@@ -39,6 +39,8 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
     "NSURLResponse",
     "NSURLSession",
     "NSOperation",
+    "NSHTTPCookie",
+    "NSHTTPCookieStorage",
 ] }
 objc2-security = { version = "0.3", default-features = false, features = [
     "objc2",

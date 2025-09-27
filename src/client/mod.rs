@@ -120,6 +120,11 @@ impl Client {
         self.cookie_jar.as_ref()
     }
 
+    /// Create a WebSocket connection
+    pub fn websocket(&self) -> crate::websocket::WebSocketBuilder {
+        crate::websocket::WebSocketBuilder::new(self.session.clone())
+    }
+
     fn resolve_url(&self, url: &str) -> String {
         match &self.base_url {
             Some(base) => {

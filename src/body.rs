@@ -113,6 +113,44 @@ impl Body {
     }
 }
 
+// Convenience From implementations
+impl From<String> for Body {
+    fn from(content: String) -> Self {
+        Self::text(content)
+    }
+}
+
+impl From<&str> for Body {
+    fn from(content: &str) -> Self {
+        Self::text(content)
+    }
+}
+
+impl From<Vec<u8>> for Body {
+    fn from(content: Vec<u8>) -> Self {
+        Self::bytes(content, "application/octet-stream")
+    }
+}
+
+impl From<&[u8]> for Body {
+    fn from(content: &[u8]) -> Self {
+        Self::bytes(content.to_vec(), "application/octet-stream")
+    }
+}
+
+impl From<Bytes> for Body {
+    fn from(content: Bytes) -> Self {
+        Self::bytes(content, "application/octet-stream")
+    }
+}
+
+#[cfg(feature = "json")]
+impl From<serde_json::Value> for Body {
+    fn from(value: serde_json::Value) -> Self {
+        Self::Json { value }
+    }
+}
+
 #[cfg(feature = "multipart")]
 impl MultipartPart {
     /// Create a text part

@@ -4,12 +4,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use block2::DynBlock;
 use objc2::rc::Retained;
 use objc2::{AllocAnyThread, DefinedClass, define_class, msg_send};
 use objc2_foundation::{
-    NSCopying, NSError, NSObject, NSObjectProtocol, NSURL, NSURLResponse, NSURLSession,
-    NSURLSessionDelegate, NSURLSessionDownloadDelegate, NSURLSessionDownloadTask, NSURLSessionTask,
-    NSURLSessionTaskDelegate,
+    NSCopying, NSError, NSObject, NSObjectProtocol, NSURL, NSURLAuthenticationChallenge,
+    NSURLAuthenticationMethodServerTrust, NSURLCredential, NSURLResponse, NSURLSession,
+    NSURLSessionAuthChallengeDisposition, NSURLSessionDelegate, NSURLSessionDownloadDelegate,
+    NSURLSessionDownloadTask, NSURLSessionTask, NSURLSessionTaskDelegate,
 };
 
 use super::TaskSharedContext;
@@ -52,6 +54,37 @@ define_class!(
                         // Mark task as completed successfully
                         shared_context.mark_completed();
                     }
+                }
+            }
+        }
+
+        #[unsafe(method(URLSession:task:didReceiveChallenge:completionHandler:))]
+        fn URLSession_task_didReceiveChallenge_completionHandler(
+            &self,
+            session: &NSURLSession,
+            _task: &NSURLSessionTask,
+            challenge: &NSURLAuthenticationChallenge,
+            completion_handler: &DynBlock<
+                dyn Fn(NSURLSessionAuthChallengeDisposition, *mut NSURLCredential),
+            >,
+        ) {
+            unsafe {
+                let protection_space = challenge.protectionSpace();
+                let auth_method = protection_space.authenticationMethod();
+
+                // Check if this is a server trust challenge
+                if auth_method.isEqualToString(&NSURLAuthenticationMethodServerTrust) {
+                    // Use default handling which respects the session configuration
+                    completion_handler.call((
+                        NSURLSessionAuthChallengeDisposition::PerformDefaultHandling,
+                        std::ptr::null_mut(),
+                    ));
+                } else {
+                    // For other types of challenges (HTTP auth, etc.), use default handling
+                    completion_handler.call((
+                        NSURLSessionAuthChallengeDisposition::PerformDefaultHandling,
+                        std::ptr::null_mut(),
+                    ));
                 }
             }
         }

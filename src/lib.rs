@@ -22,6 +22,7 @@ pub use body::Body;
 #[cfg(feature = "multipart")]
 pub use body::MultipartPart;
 pub use cookies::{Cookie, CookieAcceptPolicy, CookieJar};
+pub use websocket::{CloseCode, Message, WebSocket, WebSocketBuilder};
 
 mod auth;
 mod body;
@@ -33,3 +34,4 @@ mod request;
 mod response;
 mod session;
 mod task;
+mod websocket;

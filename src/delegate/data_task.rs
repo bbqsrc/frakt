@@ -6,9 +6,11 @@ use block2::DynBlock;
 use objc2::rc::Retained;
 use objc2::{AllocAnyThread, DefinedClass, define_class, msg_send};
 use objc2_foundation::{
-    NSCopying, NSData, NSError, NSObject, NSObjectProtocol, NSURLResponse, NSURLSession,
-    NSURLSessionDataDelegate, NSURLSessionDataTask, NSURLSessionDelegate,
-    NSURLSessionResponseDisposition, NSURLSessionTask, NSURLSessionTaskDelegate,
+    NSCopying, NSData, NSError, NSObject, NSObjectProtocol, NSURLAuthenticationChallenge,
+    NSURLAuthenticationMethodServerTrust, NSURLCredential, NSURLResponse, NSURLSession,
+    NSURLSessionAuthChallengeDisposition, NSURLSessionDataDelegate, NSURLSessionDataTask,
+    NSURLSessionDelegate, NSURLSessionResponseDisposition, NSURLSessionTask,
+    NSURLSessionTaskDelegate,
 };
 
 use super::TaskSharedContext;
@@ -54,6 +56,41 @@ define_class!(
                         // Mark task as completed successfully
                         shared_context.mark_completed();
                     }
+                }
+            }
+        }
+
+        #[unsafe(method(URLSession:task:didReceiveChallenge:completionHandler:))]
+        fn URLSession_task_didReceiveChallenge_completionHandler(
+            &self,
+            session: &NSURLSession,
+            _task: &NSURLSessionTask,
+            challenge: &NSURLAuthenticationChallenge,
+            completion_handler: &DynBlock<
+                dyn Fn(NSURLSessionAuthChallengeDisposition, *mut NSURLCredential),
+            >,
+        ) {
+            unsafe {
+                let protection_space = challenge.protectionSpace();
+                let auth_method = protection_space.authenticationMethod();
+
+                // Check if this is a server trust challenge
+                if auth_method.isEqualToString(&NSURLAuthenticationMethodServerTrust) {
+                    // Check if we should ignore certificate errors from session config
+                    let config = session.configuration();
+
+                    // For now, we'll use the default handling which respects the session configuration
+                    // In the future, this could be expanded to allow custom certificate validation
+                    completion_handler.call((
+                        NSURLSessionAuthChallengeDisposition::PerformDefaultHandling,
+                        std::ptr::null_mut(),
+                    ));
+                } else {
+                    // For other types of challenges (HTTP auth, etc.), use default handling
+                    completion_handler.call((
+                        NSURLSessionAuthChallengeDisposition::PerformDefaultHandling,
+                        std::ptr::null_mut(),
+                    ));
                 }
             }
         }

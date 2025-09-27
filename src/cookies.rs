@@ -143,8 +143,8 @@ pub struct Cookie {
     pub secure: bool,
     /// Whether the cookie is HTTP only
     pub http_only: bool,
-    /// Expiration date (None for session cookies)
-    pub expires: Option<std::time::SystemTime>,
+    /// Expiration date as string (None for session cookies)
+    pub expires: Option<String>,
 }
 
 impl Cookie {
@@ -186,8 +186,8 @@ impl Cookie {
     }
 
     /// Set the expiration date
-    pub fn expires(mut self, expires: std::time::SystemTime) -> Self {
-        self.expires = Some(expires);
+    pub fn expires(mut self, expires: impl Into<String>) -> Self {
+        self.expires = Some(expires.into());
         self
     }
 
@@ -245,6 +245,11 @@ impl Cookie {
             let secure = ns_cookie.isSecure();
             let http_only = ns_cookie.isHTTPOnly();
 
+            // Get expiration date as string if available
+            let expires = ns_cookie
+                .expiresDate()
+                .map(|date| date.description().to_string());
+
             Some(Self {
                 name,
                 value,
@@ -252,7 +257,7 @@ impl Cookie {
                 path,
                 secure,
                 http_only,
-                expires: None, // TODO: Convert NSDate to SystemTime
+                expires,
             })
         }
     }

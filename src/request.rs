@@ -185,8 +185,8 @@ impl RequestBuilder {
     }
 
     /// Set the request body
-    pub fn body(mut self, body: Body) -> Self {
-        self.body = Some(body);
+    pub fn body(mut self, body: impl Into<Body>) -> Self {
+        self.body = Some(body.into());
         self
     }
 
