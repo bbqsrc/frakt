@@ -101,7 +101,7 @@ impl Message {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::{Client, CloseCode};
 ///
 /// # #[tokio::main]
@@ -184,7 +184,7 @@ impl From<CloseCode> for NSURLSessionWebSocketCloseCode {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::{Client, Message, CloseCode};
 ///
 /// # #[tokio::main]
@@ -197,7 +197,7 @@ impl From<CloseCode> for NSURLSessionWebSocketCloseCode {
 ///     .await?;
 ///
 /// // Send a text message
-/// websocket.send("Hello, WebSocket!".into()).await?;
+/// websocket.send(Message::text("Hello, WebSocket!")).await?;
 ///
 /// // Receive a message
 /// let message = websocket.receive().await?;
@@ -240,7 +240,7 @@ impl WebSocket {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, Message};
     ///
     /// # #[tokio::main]
@@ -249,7 +249,7 @@ impl WebSocket {
     /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// // Send text directly
-    /// websocket.send("Hello, World!".into()).await?;
+    /// websocket.send(Message::text("Hello, World!")).await?;
     ///
     /// // Send binary data
     /// websocket.send(vec![1, 2, 3, 4]).await?;
@@ -307,7 +307,7 @@ impl WebSocket {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, Message};
     ///
     /// # #[tokio::main]
@@ -316,7 +316,7 @@ impl WebSocket {
     /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// // Send a message first
-    /// websocket.send("Hello".into()).await?;
+    /// websocket.send(Message::text("Hello")).await?;
     ///
     /// // Receive the echo
     /// let message = websocket.receive().await?;
@@ -382,7 +382,7 @@ impl WebSocket {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, CloseCode};
     ///
     /// # #[tokio::main]
@@ -413,7 +413,7 @@ impl WebSocket {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, CloseCode};
     ///
     /// # #[tokio::main]
@@ -444,7 +444,7 @@ impl WebSocket {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, CloseCode};
     ///
     /// # #[tokio::main]
@@ -477,8 +477,8 @@ impl WebSocket {
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// use rsurlsession::Client;
+    /// ```rust,no_run
+    /// use rsurlsession::{Client, Message};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -503,8 +503,8 @@ impl WebSocket {
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// use rsurlsession::Client;
+    /// ```rust,no_run
+    /// use rsurlsession::{Client, Message};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -529,8 +529,8 @@ impl WebSocket {
 ///
 /// # Examples
 ///
-/// ```rust
-/// use rsurlsession::Client;
+/// ```rust,no_run
+/// use rsurlsession::{Client, Message};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -568,8 +568,8 @@ impl WebSocketBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// use rsurlsession::Client;
+    /// ```rust,no_run
+    /// use rsurlsession::{Client, Message};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -598,8 +598,8 @@ impl WebSocketBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// use rsurlsession::Client;
+    /// ```rust,no_run
+    /// use rsurlsession::{Client, Message};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -610,7 +610,7 @@ impl WebSocketBuilder {
     ///     .await?;
     ///
     /// // WebSocket is now ready for use
-    /// websocket.send("Hello, WebSocket!".into()).await?;
+    /// websocket.send(Message::text("Hello, WebSocket!")).await?;
     /// # Ok(())
     /// # }
     /// ```

@@ -13,7 +13,7 @@ use std::sync::Arc;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Client;
 ///
 /// # #[tokio::main]
@@ -27,7 +27,7 @@ use std::sync::Arc;
 ///
 /// // Access headers
 /// if let Some(content_type) = response.header("content-type") {
-///     println!("Content-Type: {}", content_type);
+///     println!("Content-Type: {}", content_type.to_str().unwrap_or("<invalid UTF-8>"));
 /// }
 ///
 /// // Read response body
@@ -59,7 +59,7 @@ impl Response {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, http::StatusCode};
     ///
     /// # #[tokio::main]
@@ -108,7 +108,7 @@ impl Response {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -150,7 +150,7 @@ impl Response {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -159,11 +159,11 @@ impl Response {
     /// let response = client.get("https://httpbin.org/get").send().await?;
     ///
     /// if let Some(content_type) = response.header("content-type") {
-    ///     println!("Content-Type: {}", content_type);
+    ///     println!("Content-Type: {}", content_type.to_str().unwrap_or("<invalid UTF-8>"));
     /// }
     ///
     /// if let Some(server) = response.header("server") {
-    ///     println!("Server: {}", server);
+    ///     println!("Server: {}", server.to_str().unwrap_or("<invalid UTF-8>"));
     /// }
     /// # Ok(())
     /// # }
@@ -179,7 +179,7 @@ impl Response {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -188,7 +188,7 @@ impl Response {
     /// let response = client.get("https://httpbin.org/get").send().await?;
     ///
     /// for (name, value) in response.headers() {
-    ///     println!("{}: {}", name, value);
+    ///     println!("{}: {}", name.expect("header name").as_str(), value.to_str().unwrap_or("<invalid UTF-8>"));
     /// }
     /// # Ok(())
     /// # }
@@ -239,7 +239,7 @@ impl Response {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -270,7 +270,7 @@ impl Response {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -299,7 +299,7 @@ impl Response {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -327,7 +327,7 @@ impl Response {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -364,7 +364,7 @@ impl Response {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     /// use serde::Deserialize;
     ///
@@ -398,7 +398,7 @@ impl Response {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     /// use tokio::io::AsyncReadExt;
     ///
@@ -435,7 +435,7 @@ impl Response {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Client;
 /// use tokio::io::AsyncReadExt;
 ///

@@ -107,7 +107,7 @@ impl Client {
     /// let client = Client::new()?;
     /// let response = client
     ///     .get("https://httpbin.org/get")
-    ///     .header(http::header::ACCEPT, "application/json")??
+    ///     .header(http::header::ACCEPT, "application/json")?
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -283,7 +283,7 @@ impl Client {
     /// let client = Client::new()?;
     /// let response = client
     ///     .upload("https://httpbin.org/post")
-    ///     .file("./upload.txt")
+    ///     .from_file("./upload.txt")
     ///     .progress(|uploaded, total| {
     ///         println!("Uploaded: {} / {:?} bytes", uploaded, total);
     ///     })

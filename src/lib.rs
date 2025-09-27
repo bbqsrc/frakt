@@ -33,7 +33,7 @@
 //!
 //! ## Basic HTTP Request
 //!
-//! ```rust
+//! ```rust,no_run
 //! use rsurlsession::Client;
 //!
 //! #[tokio::main]
@@ -56,7 +56,7 @@
 //!
 //! ## File Download with Progress
 //!
-//! ```rust
+//! ```rust,no_run
 //! use rsurlsession::Client;
 //!
 //! #[tokio::main]
@@ -85,7 +85,7 @@
 //!
 //! ## File Upload
 //!
-//! ```rust
+//! ```rust,no_run
 //! use rsurlsession::Client;
 //!
 //! #[tokio::main]
@@ -113,7 +113,7 @@
 //!
 //! ## WebSocket Connection
 //!
-//! ```rust
+//! ```rust,no_run
 //! use rsurlsession::{Client, Message, CloseCode};
 //!
 //! #[tokio::main]
@@ -133,7 +133,7 @@
 //!     println!("Received: {:?}", message);
 //!
 //!     // Close the connection
-//!     websocket.close(CloseCode::Normal, Some("Goodbye")).await?;
+//!     websocket.close(CloseCode::Normal, Some("Goodbye"));
 //!
 //!     Ok(())
 //! }
@@ -143,7 +143,7 @@
 //!
 //! Background downloads continue even when your app is suspended or terminated:
 //!
-//! ```rust
+//! ```rust,no_run
 //! use rsurlsession::Client;
 //!
 //! #[tokio::main]
@@ -171,7 +171,7 @@
 //!
 //! ## Client Configuration
 //!
-//! ```rust
+//! ```rust,no_run
 //! use rsurlsession::Client;
 //! use std::time::Duration;
 //!
@@ -181,7 +181,7 @@
 //!         .user_agent("MyApp/1.0")
 //!         .timeout(Duration::from_secs(30))
 //!         .use_cookies(true)
-//!         .header("X-API-Version", "v1")?
+//!         .header("X-API-Version", "v1")
 //!         .build()?;
 //!
 //!     let response = client
@@ -214,8 +214,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
 
-#[cfg(not(target_vendor = "apple"))]
-compile_error!("rsurlsession only supports Apple platforms");
+// Multi-platform support via backend abstraction
 
 pub use auth::Auth;
 pub use client::{
@@ -239,10 +238,13 @@ mod auth;
 mod body;
 mod client;
 mod cookies;
-mod delegate;
 mod error;
 mod request;
 mod response;
 mod session;
 mod task;
 mod websocket;
+
+// Only include delegates on Apple platforms
+#[cfg(target_vendor = "apple")]
+mod delegate;
