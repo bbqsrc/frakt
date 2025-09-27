@@ -181,7 +181,7 @@
 //!         .user_agent("MyApp/1.0")
 //!         .timeout(Duration::from_secs(30))
 //!         .use_cookies(true)
-//!         .header("X-API-Version", "v1")
+//!         .header("X-API-Version", "v1")?
 //!         .build()?;
 //!
 //!     let response = client
@@ -218,7 +218,8 @@
 
 pub use auth::Auth;
 pub use client::{
-    BackgroundDownloadBuilder, Client, DownloadBuilder, DownloadResponse, UploadBuilder,
+    BackgroundDownloadBuilder, Client, ClientBuilder, DownloadBuilder, DownloadResponse,
+    UploadBuilder,
 };
 pub use error::{Error, Result};
 pub use request::{Request, RequestBuilder};
@@ -235,6 +236,7 @@ pub use websocket::{CloseCode, Message, WebSocket, WebSocketBuilder};
 pub use http;
 
 mod auth;
+pub mod backend;
 mod body;
 mod client;
 mod cookies;

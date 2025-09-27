@@ -1,470 +1,120 @@
-//! Response handling
+//! Response types with backend abstraction
 
+use crate::backend::types::BackendResponse;
 use crate::{Error, Result};
+use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
-use objc2::rc::Retained;
-use objc2_foundation::{NSHTTPURLResponse, NSURLResponse};
-use std::sync::Arc;
+use tokio::sync::mpsc;
 
-/// HTTP response from an NSURLSession request.
-///
-/// This struct represents an HTTP response received from a server. It provides methods
-/// to access the response status, headers, body content, and other metadata.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use rsurlsession::Client;
-///
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let client = Client::new()?;
-/// let response = client.get("https://api.example.com/data").send().await?;
-///
-/// // Check response status
-/// println!("Status: {}", response.status());
-/// println!("Success: {}", response.is_success());
-///
-/// // Access headers
-/// if let Some(content_type) = response.header("content-type") {
-///     println!("Content-Type: {}", content_type.to_str().unwrap_or("<invalid UTF-8>"));
-/// }
-///
-/// // Read response body
-/// let body = response.text().await?;
-/// println!("Body: {}", body);
-/// # Ok(())
-/// # }
-/// ```
+/// HTTP response from any backend
 pub struct Response {
-    response: Retained<NSURLResponse>,
-    task_context: Arc<crate::delegate::TaskSharedContext>,
+    status: StatusCode,
+    headers: HeaderMap,
+    body_receiver: mpsc::Receiver<Result<Bytes>>,
 }
 
 impl Response {
-    pub(crate) fn new(
-        response: Retained<NSURLResponse>,
-        task_context: Arc<crate::delegate::TaskSharedContext>,
-    ) -> Self {
+    /// Create a Response from a BackendResponse
+    pub(crate) fn from_backend(backend_response: BackendResponse) -> Self {
         Self {
-            response,
-            task_context,
+            status: backend_response.status,
+            headers: backend_response.headers,
+            body_receiver: backend_response.body_receiver,
         }
     }
 
-    /// Get the HTTP response status code.
-    ///
-    /// Returns the HTTP status code for the response. For non-HTTP responses,
-    /// this method returns 200 OK by default.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::{Client, http::StatusCode};
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client.get("https://httpbin.org/status/404").send().await?;
-    /// assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Get the status code
     pub fn status(&self) -> StatusCode {
-        if let Some(http_response) = self.http_response() {
-            let code = unsafe { http_response.statusCode() as u16 };
-            StatusCode::from_u16(code).unwrap_or(StatusCode::OK)
-        } else {
-            StatusCode::OK // Non-HTTP responses default to 200 OK
-        }
+        self.status
     }
 
-    /// Check if the response status indicates success (2xx).
-    ///
-    /// Returns `true` if the status code is in the 200-299 range.
+    /// Get the headers
+    pub fn headers(&self) -> &HeaderMap {
+        &self.headers
+    }
+
+    /// Get a specific header value
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name)?.to_str().ok()
+    }
+
+    /// Check if the response status indicates success (2xx)
     pub fn is_success(&self) -> bool {
-        self.status().is_success()
+        self.status.is_success()
     }
 
-    /// Check if the response status indicates a client error (4xx).
-    ///
-    /// Returns `true` if the status code is in the 400-499 range.
+    /// Check if the response status indicates a client error (4xx)
     pub fn is_client_error(&self) -> bool {
-        self.status().is_client_error()
+        self.status.is_client_error()
     }
 
-    /// Check if the response status indicates a server error (5xx).
-    ///
-    /// Returns `true` if the status code is in the 500-599 range.
+    /// Check if the response status indicates a server error (5xx)
     pub fn is_server_error(&self) -> bool {
-        self.status().is_server_error()
+        self.status.is_server_error()
     }
 
-    /// Get the expected content length from headers.
-    ///
-    /// Returns the expected content length if known from the `Content-Length` header
-    /// or if NSURLSession can determine it. Returns `None` if the length is unknown
-    /// or if this is a non-HTTP response.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::Client;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client.get("https://httpbin.org/get").send().await?;
-    ///
-    /// if let Some(length) = response.content_length() {
-    ///     println!("Expected {} bytes", length);
-    /// } else {
-    ///     println!("Content length unknown");
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn content_length(&self) -> Option<u64> {
-        if let Some(http_response) = self.http_response() {
-            unsafe {
-                let length = http_response.expectedContentLength();
-                if length >= 0 {
-                    Some(length as u64)
-                } else {
-                    None
-                }
-            }
-        } else {
-            None
+    /// Consume the response and return the body as bytes
+    pub async fn bytes(mut self) -> Result<Bytes> {
+        let mut body = Vec::new();
+
+        while let Some(chunk) = self.body_receiver.recv().await {
+            let chunk = chunk?;
+            body.extend_from_slice(&chunk);
         }
+
+        Ok(Bytes::from(body))
     }
 
-    /// Get a specific header value by name.
-    ///
-    /// Returns the value of the specified header if it exists. Header names are
-    /// case-insensitive. Returns `None` if the header is not present.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The header name to look up
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::Client;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client.get("https://httpbin.org/get").send().await?;
-    ///
-    /// if let Some(content_type) = response.header("content-type") {
-    ///     println!("Content-Type: {}", content_type.to_str().unwrap_or("<invalid UTF-8>"));
-    /// }
-    ///
-    /// if let Some(server) = response.header("server") {
-    ///     println!("Server: {}", server.to_str().unwrap_or("<invalid UTF-8>"));
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn header(&self, name: &str) -> Option<http::HeaderValue> {
-        self.headers().get(name).cloned()
-    }
-
-    /// Get all response headers as a HashMap.
-    ///
-    /// Returns a HashMap containing all HTTP response headers. The keys are header names
-    /// and values are header values. For non-HTTP responses, returns an empty HashMap.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::Client;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client.get("https://httpbin.org/get").send().await?;
-    ///
-    /// for (name, value) in response.headers() {
-    ///     println!("{}: {}", name.expect("header name").as_str(), value.to_str().unwrap_or("<invalid UTF-8>"));
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn headers(&self) -> HeaderMap {
-        if let Some(http_response) = self.http_response() {
-            unsafe {
-                let headers_dict = http_response.allHeaderFields();
-                let mut result = HeaderMap::new();
-
-                objc2::rc::autoreleasepool(|pool| {
-                    // Get all keys and iterate through them
-                    let keys = headers_dict.allKeys();
-                    for i in 0..keys.count() {
-                        let key = keys.objectAtIndex(i);
-                        if let Some(key_str) = key.downcast_ref::<objc2_foundation::NSString>() {
-                            if let Some(value) = headers_dict.objectForKey(&key) {
-                                if let Some(value_str) =
-                                    value.downcast_ref::<objc2_foundation::NSString>()
-                                {
-                                    let key_string = key_str.to_str(pool);
-                                    let value_string = value_str.to_str(pool);
-
-                                    // Convert to HeaderName and HeaderValue
-                                    if let (Ok(header_name), Ok(header_value)) = (
-                                        key_string.parse::<http::HeaderName>(),
-                                        value_string.parse::<http::HeaderValue>(),
-                                    ) {
-                                        result.insert(header_name, header_value);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                });
-
-                result
-            }
-        } else {
-            HeaderMap::new()
-        }
-    }
-
-    /// Get the final response URL.
-    ///
-    /// Returns the final URL after any redirects. This may be different from the
-    /// original request URL if the server sent redirect responses.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::Client;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client.get("https://httpbin.org/redirect/1").send().await?;
-    ///
-    /// if let Some(final_url) = response.url() {
-    ///     println!("Final URL: {}", final_url);
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn url(&self) -> Option<String> {
-        unsafe {
-            self.response.URL().and_then(|url| {
-                url.absoluteString().map(|abs_str| {
-                    objc2::rc::autoreleasepool(|pool| abs_str.to_str(pool).to_string())
-                })
-            })
-        }
-    }
-
-    /// Get the MIME type of the response.
-    ///
-    /// Returns the MIME type (Content-Type) of the response as determined by NSURLResponse.
-    /// This may be derived from the Content-Type header or inferred from the response data.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::Client;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client.get("https://httpbin.org/json").send().await?;
-    ///
-    /// if let Some(mime_type) = response.content_type() {
-    ///     println!("MIME type: {}", mime_type);
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn content_type(&self) -> Option<String> {
-        unsafe {
-            self.response
-                .MIMEType()
-                .map(|mime| objc2::rc::autoreleasepool(|pool| mime.to_str(pool).to_string()))
-        }
-    }
-
-    /// Consume the response and return the body as bytes.
-    ///
-    /// This method reads the entire response body into a `Vec<u8>`. The response
-    /// is consumed and cannot be used again after this call.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::Client;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client.get("https://httpbin.org/bytes/1024").send().await?;
-    ///
-    /// let bytes = response.bytes().await?;
-    /// println!("Received {} bytes", bytes.len());
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn bytes(self) -> Result<Vec<u8>> {
-        self.task_context.take_response_buffer().await
-    }
-
-    /// Consume the response and return the body as text.
-    ///
-    /// This method reads the entire response body and attempts to decode it as UTF-8 text.
-    /// The response is consumed and cannot be used again after this call.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the response body is not valid UTF-8.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::Client;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client.get("https://httpbin.org/get").send().await?;
-    ///
-    /// let text = response.text().await?;
-    /// println!("Response body: {}", text);
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Consume the response and return the body as text
     pub async fn text(self) -> Result<String> {
         let bytes = self.bytes().await?;
-        String::from_utf8(bytes).map_err(Error::from)
+        String::from_utf8(bytes.to_vec()).map_err(Error::Utf8)
     }
 
-    /// Consume the response and parse the body as JSON.
-    ///
-    /// This method reads the entire response body and attempts to deserialize it as JSON
-    /// into the specified type. The response is consumed and cannot be used again after this call.
-    /// This feature requires the "json" feature flag.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - The type to deserialize the JSON into. Must implement `serde::Deserialize`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The response body cannot be read
-    /// - The response body is not valid JSON
-    /// - The JSON cannot be deserialized into type `T`
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::Client;
-    /// use serde::Deserialize;
-    ///
-    /// #[derive(Deserialize)]
-    /// struct ApiResponse {
-    ///     origin: String,
-    ///     url: String,
-    /// }
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client.get("https://httpbin.org/get").send().await?;
-    ///
-    /// let data: ApiResponse = response.json().await?;
-    /// println!("Origin: {}", data.origin);
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Consume the response and deserialize the body as JSON
     #[cfg(feature = "json")]
     pub async fn json<T: serde::de::DeserializeOwned>(self) -> Result<T> {
         let bytes = self.bytes().await?;
-        serde_json::from_slice(&bytes).map_err(Error::from)
+        serde_json::from_slice(&bytes).map_err(Error::Json)
     }
 
-    /// Create a streaming reader for the response body.
-    ///
-    /// This method returns a [`ResponseStream`] that implements [`tokio::io::AsyncRead`],
-    /// allowing you to read the response body in chunks instead of loading it entirely
-    /// into memory. This is particularly useful for large responses.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::Client;
-    /// use tokio::io::AsyncReadExt;
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client.get("https://httpbin.org/stream/10").send().await?;
-    ///
-    /// let mut stream = response.stream();
-    /// let mut buffer = [0u8; 1024];
-    ///
-    /// while let bytes_read = stream.read(&mut buffer).await? {
-    ///     if bytes_read == 0 { break; }
-    ///     // Process chunk
-    ///     println!("Read {} bytes", bytes_read);
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
+    /// Get the response body as a stream of bytes
     pub fn stream(self) -> ResponseStream {
-        ResponseStream::new(self.task_context)
-    }
-
-    fn http_response(&self) -> Option<&NSHTTPURLResponse> {
-        self.response.downcast_ref::<NSHTTPURLResponse>()
+        ResponseStream {
+            receiver: self.body_receiver,
+            current_chunk: None,
+            chunk_offset: 0,
+        }
     }
 }
 
-/// Streaming response reader that implements [`tokio::io::AsyncRead`].
-///
-/// This struct provides a streaming interface for reading response bodies in chunks,
-/// which is memory-efficient for large responses. It implements the tokio AsyncRead trait,
-/// allowing it to be used with any tokio I/O utilities.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use rsurlsession::Client;
-/// use tokio::io::AsyncReadExt;
-///
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let client = Client::new()?;
-/// let response = client.get("https://httpbin.org/stream/5").send().await?;
-///
-/// let mut stream = response.stream();
-/// let mut buffer = Vec::new();
-///
-/// // Read the entire stream into the buffer
-/// stream.read_to_end(&mut buffer).await?;
-/// println!("Read {} total bytes", buffer.len());
-/// # Ok(())
-/// # }
-/// ```
+/// Stream of response body bytes
 pub struct ResponseStream {
-    task_context: Arc<crate::delegate::TaskSharedContext>,
-    bytes_read: usize,
-    finished: bool,
+    receiver: mpsc::Receiver<Result<Bytes>>,
+    current_chunk: Option<Bytes>,
+    chunk_offset: usize,
 }
 
 impl ResponseStream {
-    fn new(task_context: Arc<crate::delegate::TaskSharedContext>) -> Self {
-        Self {
-            task_context,
-            bytes_read: 0,
-            finished: false,
+    /// Get the next chunk of bytes
+    pub async fn next(&mut self) -> Option<Result<Bytes>> {
+        self.receiver.recv().await
+    }
+}
+
+impl futures_util::Stream for ResponseStream {
+    type Item = Result<Bytes>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        use std::task::Poll;
+
+        match self.receiver.poll_recv(cx) {
+            Poll::Ready(Some(item)) => Poll::Ready(Some(item)),
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
         }
     }
 }
@@ -475,48 +125,44 @@ impl tokio::io::AsyncRead for ResponseStream {
         cx: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        if self.finished {
-            return std::task::Poll::Ready(Ok(()));
-        }
+        use std::task::Poll;
 
-        // Try to read data from the shared response buffer
-        let (has_data, to_copy) =
-            if let Ok(shared_buffer) = self.task_context.response_buffer.try_lock() {
-                let available_data = shared_buffer.len().saturating_sub(self.bytes_read);
-
-                if available_data > 0 {
-                    // We have new data to read
-                    let to_copy = std::cmp::min(available_data, buf.remaining());
-                    let start_pos = self.bytes_read;
-                    let end_pos = start_pos + to_copy;
-
-                    buf.put_slice(&shared_buffer[start_pos..end_pos]);
-                    (true, to_copy)
+        loop {
+            // If we have a current chunk, try to read from it
+            if let Some(ref chunk) = self.current_chunk {
+                let remaining = chunk.len() - self.chunk_offset;
+                if remaining > 0 {
+                    let to_copy = std::cmp::min(remaining, buf.remaining());
+                    let start = self.chunk_offset;
+                    let end = start + to_copy;
+                    buf.put_slice(&chunk[start..end]);
+                    self.chunk_offset += to_copy;
+                    return Poll::Ready(Ok(()));
                 } else {
-                    (false, 0)
+                    // Current chunk is exhausted
+                    self.current_chunk = None;
+                    self.chunk_offset = 0;
                 }
-            } else {
-                (false, 0)
-            };
+            }
 
-        if has_data {
-            self.bytes_read += to_copy;
-            return std::task::Poll::Ready(Ok(()));
+            // Try to get the next chunk
+            match self.receiver.poll_recv(cx) {
+                Poll::Ready(Some(Ok(chunk))) => {
+                    self.current_chunk = Some(chunk);
+                    self.chunk_offset = 0;
+                    // Continue loop to read from this chunk
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    return Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e)));
+                }
+                Poll::Ready(None) => {
+                    // Stream ended
+                    return Poll::Ready(Ok(()));
+                }
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
+            }
         }
-
-        // Check if task is completed
-        if self.task_context.is_completed() {
-            self.finished = true;
-            return std::task::Poll::Ready(Ok(()));
-        }
-
-        // No data available and task not completed, register waker
-        let waker = cx.waker().clone();
-        let task_context = self.task_context.clone();
-        tokio::spawn(async move {
-            task_context.waker.register(waker).await;
-        });
-
-        std::task::Poll::Pending
     }
 }

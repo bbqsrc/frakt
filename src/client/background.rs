@@ -175,6 +175,47 @@ impl BackgroundDownloadBuilder {
         Ok(self)
     }
 
+    /// Set multiple headers at once using a HeaderMap.
+    ///
+    /// This method replaces all existing headers with the provided HeaderMap.
+    /// This is more efficient than chaining multiple `.header()` calls when you
+    /// need to set many headers for the background download. All headers will be
+    /// preserved during the background download even if the app is suspended.
+    ///
+    /// # Arguments
+    ///
+    /// * `headers` - A HeaderMap containing all headers to set
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use rsurlsession::Client;
+    /// use http::{HeaderMap, header};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// let mut headers = HeaderMap::new();
+    /// headers.insert(header::AUTHORIZATION, "Bearer token".parse()?);
+    /// headers.insert(header::USER_AGENT, "MyApp/1.0 Background".parse()?);
+    /// headers.insert("X-Background-Priority", "low".parse()?);
+    ///
+    /// let response = client
+    ///     .download_background("https://example.com/large-file.zip")
+    ///     .session_identifier("com.myapp.downloads")
+    ///     .headers(headers)
+    ///     .to_file("./downloads/large-file.zip")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn headers(mut self, headers: HeaderMap) -> Self {
+        self.headers = headers;
+        self
+    }
+
     /// Set authentication for the background download request.
     ///
     /// This adds the appropriate `Authorization` header based on the authentication

@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Make a simple GET request
     let response = client
         .get("https://httpbin.org/json")
-        .header("Accept", "application/json")
+        .header("Accept", "application/json")?
         .send()
         .await?;
 

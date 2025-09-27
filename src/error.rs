@@ -54,6 +54,13 @@ pub enum Error {
     #[error("Invalid URL")]
     InvalidUrl,
 
+    /// Invalid HTTP header name or value.
+    ///
+    /// This error occurs when a header name or value contains invalid characters
+    /// or when the header format is not valid according to HTTP specifications.
+    #[error("Invalid header")]
+    InvalidHeader,
+
     /// Network error from NSURLSession.
     ///
     /// This represents various network-level errors including DNS resolution failures,
@@ -122,13 +129,6 @@ pub enum Error {
     /// maximum size limit, helping to prevent memory exhaustion attacks.
     #[error("Response body exceeds maximum size")]
     ResponseTooLarge,
-
-    /// Invalid header value.
-    ///
-    /// This error occurs when a header value contains invalid characters
-    /// that cannot be converted to a valid HTTP header value.
-    #[error("Invalid header value")]
-    InvalidHeader,
 
     /// Internal library error.
     ///

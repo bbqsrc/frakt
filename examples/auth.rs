@@ -81,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .upload("https://httpbin.org/post")
         .auth(Auth::bearer("upload-token-789"))
         .from_data(upload_data.to_vec())
-        .header("Content-Type", "text/plain")
+        .header("Content-Type", "text/plain")?
         .send()
         .await?;
 

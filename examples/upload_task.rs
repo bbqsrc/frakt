@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response = client
         .upload("https://httpbin.org/post")
         .from_file(&temp_file)
-        .header("Content-Type", "text/plain")
+        .header("Content-Type", "text/plain")?
         .progress(|bytes_uploaded, total_bytes| {
             if let Some(total) = total_bytes {
                 let percentage = (bytes_uploaded as f64 / total as f64) * 100.0;
@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response2 = client
         .upload("https://httpbin.org/post")
         .from_data(small_data.to_vec())
-        .header("Content-Type", "application/octet-stream")
+        .header("Content-Type", "application/octet-stream")?
         .progress(|bytes_uploaded, total_bytes| {
             if let Some(total) = total_bytes {
                 println!("Data upload: {} / {} bytes", bytes_uploaded, total);
