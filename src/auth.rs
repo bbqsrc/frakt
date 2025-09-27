@@ -1,0 +1,149 @@
+//! Authentication support for HTTP requests
+
+use std::fmt;
+
+/// Authentication methods supported by the client
+#[derive(Debug, Clone)]
+pub enum Auth {
+    /// Basic authentication with username and password
+    Basic {
+        /// Username for basic authentication
+        username: String,
+        /// Password for basic authentication
+        password: String,
+    },
+    /// Bearer token authentication (OAuth, JWT, etc.)
+    Bearer {
+        /// Bearer token
+        token: String,
+    },
+    /// Custom authorization header
+    Custom {
+        /// Authentication scheme
+        scheme: String,
+        /// Credentials for the scheme
+        credentials: String,
+    },
+}
+
+impl Auth {
+    /// Create Basic authentication
+    pub fn basic(username: impl Into<String>, password: impl Into<String>) -> Self {
+        Self::Basic {
+            username: username.into(),
+            password: password.into(),
+        }
+    }
+
+    /// Create Bearer token authentication
+    pub fn bearer(token: impl Into<String>) -> Self {
+        Self::Bearer {
+            token: token.into(),
+        }
+    }
+
+    /// Create custom authentication
+    pub fn custom(scheme: impl Into<String>, credentials: impl Into<String>) -> Self {
+        Self::Custom {
+            scheme: scheme.into(),
+            credentials: credentials.into(),
+        }
+    }
+
+    /// Convert authentication to Authorization header value
+    pub fn to_header_value(&self) -> String {
+        match self {
+            Auth::Basic { username, password } => {
+                let credentials = format!("{}:{}", username, password);
+                let encoded = base64_encode(credentials.as_bytes());
+                format!("Basic {}", encoded)
+            }
+            Auth::Bearer { token } => {
+                format!("Bearer {}", token)
+            }
+            Auth::Custom {
+                scheme,
+                credentials,
+            } => {
+                format!("{} {}", scheme, credentials)
+            }
+        }
+    }
+}
+
+impl fmt::Display for Auth {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Auth::Basic { username, .. } => {
+                write!(f, "Basic authentication for user: {}", username)
+            }
+            Auth::Bearer { .. } => write!(f, "Bearer token authentication"),
+            Auth::Custom { scheme, .. } => write!(f, "Custom {} authentication", scheme),
+        }
+    }
+}
+
+/// Simple base64 encoding implementation
+/// This avoids adding another dependency and is sufficient for Basic auth
+fn base64_encode(input: &[u8]) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::new();
+
+    let mut i = 0;
+    while i < input.len() {
+        let b1 = input[i];
+        let b2 = if i + 1 < input.len() { input[i + 1] } else { 0 };
+        let b3 = if i + 2 < input.len() { input[i + 2] } else { 0 };
+
+        let bitmap = ((b1 as u32) << 16) | ((b2 as u32) << 8) | (b3 as u32);
+
+        result.push(ALPHABET[((bitmap >> 18) & 63) as usize] as char);
+        result.push(ALPHABET[((bitmap >> 12) & 63) as usize] as char);
+
+        if i + 1 < input.len() {
+            result.push(ALPHABET[((bitmap >> 6) & 63) as usize] as char);
+        } else {
+            result.push('=');
+        }
+
+        if i + 2 < input.len() {
+            result.push(ALPHABET[(bitmap & 63) as usize] as char);
+        } else {
+            result.push('=');
+        }
+
+        i += 3;
+    }
+
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_auth() {
+        let auth = Auth::basic("user", "pass");
+        assert_eq!(auth.to_header_value(), "Basic dXNlcjpwYXNz");
+    }
+
+    #[test]
+    fn test_bearer_auth() {
+        let auth = Auth::bearer("token123");
+        assert_eq!(auth.to_header_value(), "Bearer token123");
+    }
+
+    #[test]
+    fn test_custom_auth() {
+        let auth = Auth::custom("ApiKey", "secret123");
+        assert_eq!(auth.to_header_value(), "ApiKey secret123");
+    }
+
+    #[test]
+    fn test_base64_encode() {
+        assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
+        assert_eq!(base64_encode(b"user:pass"), "dXNlcjpwYXNz");
+        assert_eq!(base64_encode(b"test"), "dGVzdA==");
+    }
+}

@@ -215,6 +215,13 @@ impl RequestBuilder {
         self
     }
 
+    /// Set authentication for the request
+    pub fn auth(mut self, auth: crate::Auth) -> Self {
+        self.headers
+            .insert("Authorization".to_string(), auth.to_header_value());
+        self
+    }
+
     /// Set a progress callback for tracking download progress
     pub fn progress<F>(mut self, callback: F) -> Self
     where

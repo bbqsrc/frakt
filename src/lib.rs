@@ -9,7 +9,10 @@
 #[cfg(not(target_vendor = "apple"))]
 compile_error!("rsurlsession only supports Apple platforms");
 
-pub use client::{BackgroundDownloadBuilder, Client, DownloadBuilder, DownloadResponse};
+pub use auth::Auth;
+pub use client::{
+    BackgroundDownloadBuilder, Client, DownloadBuilder, DownloadResponse, UploadBuilder,
+};
 pub use error::{Error, Result};
 pub use request::{Request, RequestBuilder};
 pub use response::Response;
@@ -19,6 +22,7 @@ pub use body::Body;
 #[cfg(feature = "multipart")]
 pub use body::MultipartPart;
 
+mod auth;
 mod body;
 mod client;
 mod delegate;
