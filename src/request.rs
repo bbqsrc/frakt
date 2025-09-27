@@ -2,10 +2,9 @@
 
 use crate::delegate::shared_context::ProgressCallback;
 use crate::{Error, Result, body::Body};
-use http::{HeaderMap, HeaderValue, Method};
+use http::{HeaderMap, HeaderValue, Method, header};
 use objc2::rc::Retained;
 use objc2_foundation::{NSMutableURLRequest, NSString, NSURL, NSURLSession};
-
 
 /// An HTTP request ready to be executed.
 ///
@@ -56,7 +55,9 @@ impl Request {
             // Set headers
             for (name, value) in &self.headers {
                 req.setValue_forHTTPHeaderField(
-                    Some(&NSString::from_str(value.to_str().expect("Invalid header value"))),
+                    Some(&NSString::from_str(
+                        value.to_str().expect("Invalid header value"),
+                    )),
                     &NSString::from_str(name.as_str()),
                 );
             }
@@ -71,7 +72,7 @@ impl Request {
                     } => {
                         req.setValue_forHTTPHeaderField(
                             Some(&NSString::from_str(content_type)),
-                            &NSString::from_str("Content-Type"),
+                            &NSString::from_str(header::CONTENT_TYPE.as_str()),
                         );
                         let nsdata = objc2_foundation::NSData::from_vec(content.to_vec());
                         req.setHTTPBody(Some(&nsdata));
@@ -79,7 +80,7 @@ impl Request {
                     Body::Form { fields } => {
                         req.setValue_forHTTPHeaderField(
                             Some(&NSString::from_str("application/x-www-form-urlencoded")),
-                            &NSString::from_str("Content-Type"),
+                            &NSString::from_str(header::CONTENT_TYPE.as_str()),
                         );
                         let encoded = encode_form_fields(fields);
                         let nsdata = objc2_foundation::NSData::from_vec(encoded.into_bytes());
@@ -89,7 +90,7 @@ impl Request {
                     Body::Json { value } => {
                         req.setValue_forHTTPHeaderField(
                             Some(&NSString::from_str("application/json")),
-                            &NSString::from_str("Content-Type"),
+                            &NSString::from_str(header::CONTENT_TYPE.as_str()),
                         );
                         let json_bytes = serde_json::to_vec(value)?;
                         let nsdata = objc2_foundation::NSData::from_vec(json_bytes);
@@ -101,7 +102,7 @@ impl Request {
                         let content_type = format!("multipart/form-data; boundary={}", boundary);
                         req.setValue_forHTTPHeaderField(
                             Some(&NSString::from_str(&content_type)),
-                            &NSString::from_str("Content-Type"),
+                            &NSString::from_str(header::CONTENT_TYPE.as_str()),
                         );
                         let multipart_data = encode_multipart_data(&boundary, parts)?;
                         let nsdata = objc2_foundation::NSData::from_vec(multipart_data);
@@ -148,7 +149,7 @@ impl Request {
 /// # Examples
 ///
 /// Basic request with headers:
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Client;
 ///
 /// # #[tokio::main]
@@ -156,8 +157,8 @@ impl Request {
 /// let client = Client::new()?;
 /// let response = client
 ///     .get("https://api.example.com/data")
-///     .header("Accept", "application/json")
-///     .header("User-Agent", "MyApp/1.0")
+///     .header(http::header::ACCEPT, "application/json")?
+///     .header(http::header::USER_AGENT, "MyApp/1.0")?
 ///     .send()
 ///     .await?;
 /// # Ok(())
@@ -165,7 +166,7 @@ impl Request {
 /// ```
 ///
 /// POST request with JSON body:
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Client;
 ///
 /// # #[tokio::main]
@@ -173,7 +174,7 @@ impl Request {
 /// let client = Client::new()?;
 /// let response = client
 ///     .post("https://api.example.com/users")
-///     .header("Content-Type", "application/json")
+///     .header(http::header::CONTENT_TYPE, "application/json")?
 ///     .body(r#"{"name": "John", "email": "john@example.com"}"#)
 ///     .send()
 ///     .await?;
@@ -216,12 +217,12 @@ impl RequestBuilder {
     ///
     /// # Arguments
     ///
-    /// * `name` - The header name (e.g., "Content-Type", "Authorization")
+    /// * `name` - The header name (e.g., http::header::CONTENT_TYPE, http::header::AUTHORIZATION)
     /// * `value` - The header value
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -229,18 +230,23 @@ impl RequestBuilder {
     /// let client = Client::new()?;
     /// let response = client
     ///     .get("https://api.example.com/data")
-    ///     .header("Accept", "application/json")
-    ///     .header("Authorization", "Bearer token123")
+    ///     .header(http::header::ACCEPT, "application/json")?
+    ///     .header(http::header::AUTHORIZATION, "Bearer token123")?
     ///     .send()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        let header_name: http::HeaderName = name.into().parse().expect("Invalid header name");
-        let header_value = HeaderValue::from_str(&value.into()).expect("Invalid header value");
+    pub fn header(
+        mut self,
+        name: impl TryInto<http::HeaderName>,
+        value: impl Into<String>,
+    ) -> crate::Result<Self> {
+        let header_name = name.try_into().map_err(|_| crate::Error::InvalidHeader)?;
+        let header_value =
+            HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
         self.headers.insert(header_name, header_value);
-        self
+        Ok(self)
     }
 
     /// Set the request body.
@@ -255,7 +261,7 @@ impl RequestBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -301,7 +307,7 @@ impl RequestBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     /// use serde_json::json;
     ///
@@ -336,7 +342,7 @@ impl RequestBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -375,7 +381,7 @@ impl RequestBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -405,7 +411,7 @@ impl RequestBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, Auth};
     ///
     /// # #[tokio::main]
@@ -434,8 +440,9 @@ impl RequestBuilder {
     /// # }
     /// ```
     pub fn auth(mut self, auth: crate::Auth) -> Self {
-        let header_value = HeaderValue::from_str(&auth.to_header_value()).expect("Invalid auth header value");
-        self.headers.insert("Authorization", header_value);
+        let header_value =
+            HeaderValue::from_str(&auth.to_header_value()).expect("Invalid auth header value");
+        self.headers.insert(header::AUTHORIZATION, header_value);
         self
     }
 
@@ -451,7 +458,7 @@ impl RequestBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -500,7 +507,7 @@ impl RequestBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -508,7 +515,7 @@ impl RequestBuilder {
     /// let client = Client::new()?;
     /// let response = client
     ///     .get("https://api.example.com/data")
-    ///     .header("Accept", "application/json")
+    ///     .header(http::header::ACCEPT, "application/json")?
     ///     .send()
     ///     .await?;
     ///

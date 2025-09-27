@@ -9,7 +9,7 @@ use objc2::rc::Retained;
 use objc2::{AllocAnyThread, DefinedClass, define_class, msg_send};
 use objc2_foundation::{
     NSCopying, NSError, NSObject, NSObjectProtocol, NSURL, NSURLAuthenticationChallenge,
-    NSURLAuthenticationMethodServerTrust, NSURLCredential, NSURLResponse, NSURLSession,
+    NSURLAuthenticationMethodServerTrust, NSURLCredential, NSURLSession,
     NSURLSessionAuthChallengeDisposition, NSURLSessionDelegate, NSURLSessionDownloadDelegate,
     NSURLSessionDownloadTask, NSURLSessionTask, NSURLSessionTaskDelegate,
 };

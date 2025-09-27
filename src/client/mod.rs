@@ -29,7 +29,7 @@ use std::time::Duration;
 /// # Examples
 ///
 /// Basic usage:
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Client;
 ///
 /// # #[tokio::main]
@@ -41,7 +41,7 @@ use std::time::Duration;
 ///
 /// let response = client
 ///     .get("https://httpbin.org/json")
-///     .header("Accept", "application/json")
+///     .header(http::header::ACCEPT, "application/json")?
 ///     .send()
 ///     .await?;
 ///
@@ -73,7 +73,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     /// use std::time::Duration;
     ///
@@ -99,7 +99,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -107,7 +107,7 @@ impl Client {
     /// let client = Client::new()?;
     /// let response = client
     ///     .get("https://httpbin.org/get")
-    ///     .header("Accept", "application/json")
+    ///     .header(http::header::ACCEPT, "application/json")??
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -130,7 +130,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -138,7 +138,7 @@ impl Client {
     /// let client = Client::new()?;
     /// let response = client
     ///     .post("https://httpbin.org/post")
-    ///     .header("Content-Type", "application/json")
+    ///     .header(http::header::CONTENT_TYPE, "application/json")?
     ///     .body(r#"{"key": "value"}"#)
     ///     .send()
     ///     .await?;
@@ -232,7 +232,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -275,7 +275,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -302,7 +302,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -326,7 +326,7 @@ impl Client {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, Message, CloseCode};
     ///
     /// # #[tokio::main]

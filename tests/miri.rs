@@ -26,7 +26,10 @@ fn test_body_text_creation() {
     let body = Body::text("Hello, World!");
 
     match body {
-        Body::Bytes { content, content_type } => {
+        Body::Bytes {
+            content,
+            content_type,
+        } => {
             assert_eq!(content.as_ref(), b"Hello, World!");
             assert_eq!(content_type, "text/plain; charset=utf-8");
         }
@@ -41,7 +44,10 @@ fn test_body_bytes_creation() {
     let body = Body::bytes(data.clone(), "application/octet-stream");
 
     match body {
-        Body::Bytes { content, content_type } => {
+        Body::Bytes {
+            content,
+            content_type,
+        } => {
             assert_eq!(content.as_ref(), &data);
             assert_eq!(content_type, "application/octet-stream");
         }
@@ -107,12 +113,15 @@ fn test_multipart_part_creation() {
         "file",
         vec![1, 2, 3, 4, 5],
         "test.bin",
-        Some("application/octet-stream".to_string())
+        Some("application/octet-stream".to_string()),
     );
 
     assert_eq!(part.name, "file");
     assert_eq!(part.content.as_ref(), &[1, 2, 3, 4, 5]);
-    assert_eq!(part.content_type.as_ref().unwrap(), "application/octet-stream");
+    assert_eq!(
+        part.content_type.as_ref().unwrap(),
+        "application/octet-stream"
+    );
     assert_eq!(part.filename.as_ref().unwrap(), "test.bin");
 }
 
@@ -130,7 +139,10 @@ fn test_string_conversions() {
     for test_str in test_strings {
         let body = Body::text(test_str);
         match body {
-            Body::Bytes { content, content_type } => {
+            Body::Bytes {
+                content,
+                content_type,
+            } => {
                 assert_eq!(content_type, "text/plain; charset=utf-8");
                 let roundtrip = String::from_utf8(content.to_vec()).expect("Invalid UTF-8");
                 assert_eq!(roundtrip, test_str);

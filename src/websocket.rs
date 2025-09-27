@@ -197,7 +197,7 @@ impl From<CloseCode> for NSURLSessionWebSocketCloseCode {
 ///     .await?;
 ///
 /// // Send a text message
-/// websocket.send("Hello, WebSocket!").await?;
+/// websocket.send("Hello, WebSocket!".into()).await?;
 ///
 /// // Receive a message
 /// let message = websocket.receive().await?;
@@ -249,7 +249,7 @@ impl WebSocket {
     /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// // Send text directly
-    /// websocket.send("Hello, World!").await?;
+    /// websocket.send("Hello, World!".into()).await?;
     ///
     /// // Send binary data
     /// websocket.send(vec![1, 2, 3, 4]).await?;
@@ -316,7 +316,7 @@ impl WebSocket {
     /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// // Send a message first
-    /// websocket.send("Hello").await?;
+    /// websocket.send("Hello".into()).await?;
     ///
     /// // Receive the echo
     /// let message = websocket.receive().await?;
@@ -610,7 +610,7 @@ impl WebSocketBuilder {
     ///     .await?;
     ///
     /// // WebSocket is now ready for use
-    /// websocket.send("Hello, WebSocket!").await?;
+    /// websocket.send("Hello, WebSocket!".into()).await?;
     /// # Ok(())
     /// # }
     /// ```

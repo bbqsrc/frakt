@@ -1,6 +1,6 @@
 use super::download::{DownloadFuture, DownloadResponse};
 use crate::Result;
-use http::{HeaderMap, HeaderValue};
+use http::{HeaderMap, HeaderValue, header};
 
 /// Builder for downloading files in background sessions.
 ///
@@ -13,7 +13,7 @@ use http::{HeaderMap, HeaderValue};
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Client;
 ///
 /// # #[tokio::main]
@@ -69,7 +69,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -102,7 +102,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -146,7 +146,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -155,17 +155,22 @@ impl BackgroundDownloadBuilder {
     /// let response = client
     ///     .download_background("https://api.example.com/files/video.mp4")
     ///     .session_identifier("com.myapp.downloads")
-    ///     .header("X-API-Key", "your-api-key")
-    ///     .header("User-Agent", "MyApp/1.0")
+    ///     .header("X-API-Key", "your-api-key")?
+    ///     .header(http::header::USER_AGENT, "MyApp/1.0")?
     ///     .to_file("./downloads/video.mp4")
     ///     .send()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> crate::Result<Self> {
-        let header_name: http::HeaderName = name.into().parse().map_err(|_| crate::Error::InvalidHeader)?;
-        let header_value = HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
+    pub fn header(
+        mut self,
+        name: impl TryInto<http::HeaderName>,
+        value: impl Into<String>,
+    ) -> crate::Result<Self> {
+        let header_name = name.try_into().map_err(|_| crate::Error::InvalidHeader)?;
+        let header_value =
+            HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
         self.headers.insert(header_name, header_value);
         Ok(self)
     }
@@ -182,7 +187,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, Auth};
     ///
     /// # #[tokio::main]
@@ -191,7 +196,7 @@ impl BackgroundDownloadBuilder {
     /// let response = client
     ///     .download_background("https://api.example.com/protected/large-file.zip")
     ///     .session_identifier("com.myapp.downloads")
-    ///     .auth(Auth::bearer("your-token"))
+    ///     .auth(Auth::bearer("your-token"))?
     ///     .to_file("./downloads/protected-file.zip")
     ///     .send()
     ///     .await?;
@@ -199,8 +204,9 @@ impl BackgroundDownloadBuilder {
     /// # }
     /// ```
     pub fn auth(mut self, auth: crate::Auth) -> crate::Result<Self> {
-        let header_value = HeaderValue::from_str(&auth.to_header_value()).map_err(|_| crate::Error::InvalidHeader)?;
-        self.headers.insert("Authorization", header_value);
+        let header_value = HeaderValue::from_str(&auth.to_header_value())
+            .map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers.insert(header::AUTHORIZATION, header_value);
         Ok(self)
     }
 
@@ -220,7 +226,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -256,7 +262,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -307,7 +313,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]

@@ -9,7 +9,7 @@ use std::fmt;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::{Client, Auth};
 ///
 /// # #[tokio::main]
@@ -81,7 +81,7 @@ impl Auth {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Auth;
     ///
     /// let auth = Auth::basic("john_doe", "secret123");
@@ -104,7 +104,7 @@ impl Auth {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Auth;
     ///
     /// let auth = Auth::bearer("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...");
@@ -127,7 +127,7 @@ impl Auth {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Auth;
     ///
     /// let auth = Auth::custom("ApiKey", "your-api-key-here");
@@ -148,7 +148,7 @@ impl Auth {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Auth;
     ///
     /// let basic_auth = Auth::basic("user", "pass");

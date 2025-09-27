@@ -66,7 +66,7 @@ impl Response {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client.get("https://httpbin.org/status/404").send().await?;
-    /// assert_eq!(response.status(), `StatusCode`::NOT_FOUND);
+    /// assert_eq!(response.status(), StatusCode::NOT_FOUND);
     /// # Ok(())
     /// # }
     /// ```
@@ -215,7 +215,7 @@ impl Response {
                                     // Convert to HeaderName and HeaderValue
                                     if let (Ok(header_name), Ok(header_value)) = (
                                         key_string.parse::<http::HeaderName>(),
-                                        value_string.parse::<http::HeaderValue>()
+                                        value_string.parse::<http::HeaderValue>(),
                                     ) {
                                         result.insert(header_name, header_value);
                                     }
@@ -370,8 +370,8 @@ impl Response {
     ///
     /// #[derive(Deserialize)]
     /// struct ApiResponse {
-    ///     origin: `String`,
-    ///     url: `String`,
+    ///     origin: String,
+    ///     url: String,
     /// }
     ///
     /// # #[tokio::main]

@@ -42,7 +42,7 @@
 //!
 //!     let response = client
 //!         .get("https://httpbin.org/json")
-//!         .header("Accept", "application/json")
+//!         .header(http::header::ACCEPT, "application/json")?
 //!         .send()
 //!         .await?;
 //!
@@ -95,7 +95,7 @@
 //!     let response = client
 //!         .upload("https://httpbin.org/post")
 //!         .from_file("./upload.txt")
-//!         .header("Content-Type", "text/plain")
+//!         .header(http::header::CONTENT_TYPE, "text/plain")?
 //!         .progress(|uploaded, total| {
 //!             if let Some(total) = total {
 //!                 let percent = (uploaded as f64 / total as f64) * 100.0;
@@ -181,7 +181,7 @@
 //!         .user_agent("MyApp/1.0")
 //!         .timeout(Duration::from_secs(30))
 //!         .use_cookies(true)
-//!         .header("X-API-Version", "v1")
+//!         .header("X-API-Version", "v1")?
 //!         .build()?;
 //!
 //!     let response = client

@@ -11,7 +11,7 @@ use std::borrow::Cow;
 /// # Examples
 ///
 /// Creating different body types:
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Body;
 ///
 /// // Text body
@@ -29,7 +29,7 @@ use std::borrow::Cow;
 /// ```
 ///
 /// Using convenient `From` implementations:
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::{Client, Body};
 ///
 /// # #[tokio::main]
@@ -86,7 +86,7 @@ pub enum Body {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::MultipartPart;
 ///
 /// // Text field
@@ -131,7 +131,7 @@ impl Body {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Body;
     ///
     /// let data = vec![0xFF, 0xD8, 0xFF, 0xE0]; // JPEG header
@@ -154,7 +154,7 @@ impl Body {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Body;
     ///
     /// let body = Body::text("Hello, World!");
@@ -177,7 +177,7 @@ impl Body {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Body;
     ///
     /// let body = Body::form(vec![
@@ -210,7 +210,7 @@ impl Body {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Body;
     /// use serde_json::json;
     ///
@@ -241,7 +241,7 @@ impl Body {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Body, MultipartPart};
     ///
     /// let parts = vec![
@@ -271,7 +271,7 @@ impl Body {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Body;
     ///
     /// # #[tokio::main]

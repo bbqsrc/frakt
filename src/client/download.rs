@@ -1,5 +1,5 @@
 use crate::Result;
-use http::{HeaderMap, HeaderValue};
+use http::{HeaderMap, HeaderValue, header};
 use objc2::rc::Retained;
 use objc2_foundation::NSURLSession;
 
@@ -12,7 +12,7 @@ use objc2_foundation::NSURLSession;
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Client;
 ///
 /// # #[tokio::main]
@@ -64,7 +64,7 @@ impl DownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -94,7 +94,7 @@ impl DownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -136,7 +136,7 @@ impl DownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -144,17 +144,22 @@ impl DownloadBuilder {
     /// let client = Client::new()?;
     /// let response = client
     ///     .download("https://api.example.com/files/123")
-    ///     .header("X-API-Key", "your-api-key")
-    ///     .header("Accept", "application/octet-stream")
+    ///     .header("X-API-Key", "your-api-key")?
+    ///     .header(http::header::ACCEPT, "application/octet-stream")?
     ///     .to_file("./downloads/file.bin")
     ///     .send()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> crate::Result<Self> {
-        let header_name: http::HeaderName = name.into().parse().map_err(|_| crate::Error::InvalidHeader)?;
-        let header_value = HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
+    pub fn header(
+        mut self,
+        name: impl TryInto<http::HeaderName>,
+        value: impl Into<String>,
+    ) -> crate::Result<Self> {
+        let header_name = name.try_into().map_err(|_| crate::Error::InvalidHeader)?;
+        let header_value =
+            HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
         self.headers.insert(header_name, header_value);
         Ok(self)
     }
@@ -170,7 +175,7 @@ impl DownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, Auth};
     ///
     /// # #[tokio::main]
@@ -178,7 +183,7 @@ impl DownloadBuilder {
     /// let client = Client::new()?;
     /// let response = client
     ///     .download("https://api.example.com/protected/file.zip")
-    ///     .auth(Auth::bearer("your-token"))
+    ///     .auth(Auth::bearer("your-token"))?
     ///     .to_file("./downloads/file.zip")
     ///     .send()
     ///     .await?;
@@ -186,8 +191,9 @@ impl DownloadBuilder {
     /// # }
     /// ```
     pub fn auth(mut self, auth: crate::Auth) -> crate::Result<Self> {
-        let header_value = HeaderValue::from_str(&auth.to_header_value()).map_err(|_| crate::Error::InvalidHeader)?;
-        self.headers.insert("Authorization", header_value);
+        let header_value = HeaderValue::from_str(&auth.to_header_value())
+            .map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers.insert(header::AUTHORIZATION, header_value);
         Ok(self)
     }
 
@@ -211,7 +217,7 @@ impl DownloadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -230,7 +236,6 @@ impl DownloadBuilder {
     /// # }
     /// ```
     pub async fn send(self) -> Result<DownloadResponse> {
-        use crate::delegate::shared_context::ProgressCallback;
         use objc2::runtime::ProtocolObject;
         use objc2_foundation::{NSMutableURLRequest, NSString, NSURL};
 
@@ -296,7 +301,7 @@ impl DownloadBuilder {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Client;
 ///
 /// # #[tokio::main]

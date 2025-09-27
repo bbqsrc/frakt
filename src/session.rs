@@ -1,7 +1,7 @@
 //! Session configuration and management
 
 use crate::Result;
-use http::{HeaderMap, HeaderValue};
+use http::{HeaderMap, HeaderValue, header};
 use objc2::rc::Retained;
 use objc2_foundation::{
     NSDictionary, NSString, NSURLRequestCachePolicy, NSURLSessionConfiguration,
@@ -116,8 +116,9 @@ impl SessionConfigurationBuilder {
 
     /// Set user agent
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
-        let header_value = HeaderValue::from_str(&user_agent.into()).expect("Invalid user agent value");
-        self.headers.insert("User-Agent", header_value);
+        let header_value =
+            HeaderValue::from_str(&user_agent.into()).expect("Invalid user agent value");
+        self.headers.insert(header::USER_AGENT, header_value);
         self
     }
 
@@ -244,7 +245,11 @@ impl SessionConfigurationBuilder {
 
             // Set default headers
             if !self.headers.is_empty() {
-                let keys: Vec<_> = self.headers.keys().map(|k| NSString::from_str(k.as_str())).collect();
+                let keys: Vec<_> = self
+                    .headers
+                    .keys()
+                    .map(|k| NSString::from_str(k.as_str()))
+                    .collect();
                 let values: Vec<_> = self
                     .headers
                     .values()

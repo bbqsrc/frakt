@@ -1,7 +1,7 @@
 //! Upload task implementation using NSURLSessionUploadTask
 
 use crate::Result;
-use http::{HeaderMap, HeaderValue};
+use http::{HeaderMap, HeaderValue, header};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::{NSCopying, NSURLSession};
@@ -16,7 +16,7 @@ use std::sync::Arc;
 /// # Examples
 ///
 /// Upload from a file:
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Client;
 ///
 /// # #[tokio::main]
@@ -38,7 +38,7 @@ use std::sync::Arc;
 /// ```
 ///
 /// Upload from data:
-/// ```rust
+/// ```rust,no_run
 /// use rsurlsession::Client;
 ///
 /// # #[tokio::main]
@@ -48,7 +48,7 @@ use std::sync::Arc;
 /// let response = client
 ///     .upload("https://httpbin.org/post")
 ///     .from_data(data)
-///     .header("Content-Type", "text/plain")
+///     .header(http::header::CONTENT_TYPE, "text/plain")?
 ///     .send()
 ///     .await?;
 /// # Ok(())
@@ -87,7 +87,7 @@ impl UploadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -96,7 +96,7 @@ impl UploadBuilder {
     /// let response = client
     ///     .upload("https://httpbin.org/post")
     ///     .from_file("./document.pdf")
-    ///     .header("Content-Type", "application/pdf")
+    ///     .header(http::header::CONTENT_TYPE, "application/pdf")?
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -120,7 +120,7 @@ impl UploadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -130,7 +130,7 @@ impl UploadBuilder {
     /// let response = client
     ///     .upload("https://httpbin.org/post")
     ///     .from_data(json_data.as_bytes().to_vec())
-    ///     .header("Content-Type", "application/json")
+    ///     .header(http::header::CONTENT_TYPE, "application/json")?
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -153,7 +153,7 @@ impl UploadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -195,7 +195,7 @@ impl UploadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -204,16 +204,21 @@ impl UploadBuilder {
     /// let response = client
     ///     .upload("https://api.example.com/files")
     ///     .from_file("./image.jpg")
-    ///     .header("Content-Type", "image/jpeg")
-    ///     .header("X-Upload-Source", "mobile-app")
+    ///     .header(http::header::CONTENT_TYPE, "image/jpeg")?
+    ///     .header("X-Upload-Source", "mobile-app")?
     ///     .send()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> crate::Result<Self> {
-        let header_name: http::HeaderName = name.into().parse().map_err(|_| crate::Error::InvalidHeader)?;
-        let header_value = HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
+    pub fn header(
+        mut self,
+        name: impl TryInto<http::HeaderName>,
+        value: impl Into<String>,
+    ) -> crate::Result<Self> {
+        let header_name = name.try_into().map_err(|_| crate::Error::InvalidHeader)?;
+        let header_value =
+            HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
         self.headers.insert(header_name, header_value);
         Ok(self)
     }
@@ -229,7 +234,7 @@ impl UploadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::{Client, Auth};
     ///
     /// # #[tokio::main]
@@ -238,15 +243,16 @@ impl UploadBuilder {
     /// let response = client
     ///     .upload("https://api.example.com/upload")
     ///     .from_file("./document.pdf")
-    ///     .auth(Auth::bearer("your-token"))
+    ///     .auth(Auth::bearer("your-token"))?
     ///     .send()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
     pub fn auth(mut self, auth: crate::Auth) -> crate::Result<Self> {
-        let header_value = HeaderValue::from_str(&auth.to_header_value()).map_err(|_| crate::Error::InvalidHeader)?;
-        self.headers.insert("Authorization", header_value);
+        let header_value = HeaderValue::from_str(&auth.to_header_value())
+            .map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers.insert(header::AUTHORIZATION, header_value);
         Ok(self)
     }
 
@@ -271,7 +277,7 @@ impl UploadBuilder {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,no_run
     /// use rsurlsession::Client;
     ///
     /// # #[tokio::main]
@@ -280,7 +286,7 @@ impl UploadBuilder {
     /// let response = client
     ///     .upload("https://httpbin.org/post")
     ///     .from_data(b"Hello, Server!".to_vec())
-    ///     .header("Content-Type", "text/plain")
+    ///     .header(http::header::CONTENT_TYPE, "text/plain")?
     ///     .send()
     ///     .await?;
     ///

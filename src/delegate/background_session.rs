@@ -8,8 +8,8 @@ use block2::DynBlock;
 use objc2::rc::Retained;
 use objc2::{AllocAnyThread, DefinedClass, define_class, msg_send};
 use objc2_foundation::{
-    NSCopying, NSError, NSObject, NSObjectProtocol, NSURL, NSURLResponse, NSURLSession,
-    NSURLSessionDelegate, NSURLSessionDownloadDelegate, NSURLSessionDownloadTask, NSURLSessionTask,
+    NSCopying, NSError, NSObject, NSObjectProtocol, NSURL, NSURLSession, NSURLSessionDelegate,
+    NSURLSessionDownloadDelegate, NSURLSessionDownloadTask, NSURLSessionTask,
     NSURLSessionTaskDelegate,
 };
 
