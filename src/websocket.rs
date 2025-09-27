@@ -9,7 +9,7 @@ use objc2_foundation::{
 };
 use tokio::sync::oneshot;
 
-/// WebSocket message types
+/// [`WebSocket`] message types
 #[derive(Debug, Clone)]
 pub enum Message {
     /// Text message
@@ -94,7 +94,7 @@ impl Message {
     }
 }
 
-/// WebSocket close codes.
+/// [`WebSocket`] close codes.
 ///
 /// These codes indicate the reason why a WebSocket connection was closed.
 /// They correspond to the standard WebSocket close codes defined in RFC 6455.
@@ -176,10 +176,10 @@ impl From<CloseCode> for NSURLSessionWebSocketCloseCode {
     }
 }
 
-/// A WebSocket connection using NSURLSessionWebSocketTask.
+/// A [`WebSocket`] connection using NSURLSessionWebSocketTask.
 ///
-/// This struct represents an active WebSocket connection that can send and receive messages.
-/// It uses NSURLSession's WebSocket implementation for optimal performance and integration
+/// This struct represents an active [`WebSocket`] connection that can send and receive messages.
+/// It uses NSURLSession's [`WebSocket`] implementation for optimal performance and integration
 /// with the Apple ecosystem.
 ///
 /// # Examples
@@ -216,7 +216,7 @@ pub struct WebSocket {
 }
 
 impl WebSocket {
-    /// Create a new WebSocket connection
+    /// Create a new [`WebSocket`] connection
     pub(crate) fn new(session: &NSURLSession, url: &str) -> Result<Self> {
         unsafe {
             let nsurl = NSURL::URLWithString(&NSString::from_str(url)).ok_or(Error::InvalidUrl)?;
@@ -228,15 +228,15 @@ impl WebSocket {
         }
     }
 
-    /// Send a message over the WebSocket connection.
+    /// Send a message over the [`WebSocket`] connection.
     ///
-    /// This method sends a message to the WebSocket server. The message can be either
+    /// This method sends a message to the [`WebSocket`] server. The message can be either
     /// text or binary data, and will be automatically converted from types that implement
     /// `Into<Message>`.
     ///
     /// # Arguments
     ///
-    /// * `message` - The message to send (String, &str, Vec<u8>, or Message)
+    /// * `message` - The message to send (`String`, `&str`, `Vec<u8>`, or [`Message`])
     ///
     /// # Examples
     ///
@@ -296,9 +296,9 @@ impl WebSocket {
         })?
     }
 
-    /// Receive a message from the WebSocket connection.
+    /// Receive a message from the [`WebSocket`] connection.
     ///
-    /// This method waits for and returns the next message from the WebSocket server.
+    /// This method waits for and returns the next message from the [`WebSocket`] server.
     /// The method will block until a message is received or an error occurs.
     ///
     /// # Returns
@@ -370,9 +370,9 @@ impl WebSocket {
         })?
     }
 
-    /// Close the WebSocket connection.
+    /// Close the [`WebSocket`] connection.
     ///
-    /// This method closes the WebSocket connection with the specified close code and reason.
+    /// This method closes the [`WebSocket`] connection with the specified close code and reason.
     /// The connection will be terminated and no further messages can be sent or received.
     ///
     /// # Arguments
@@ -466,7 +466,7 @@ impl WebSocket {
         }
     }
 
-    /// Set the maximum message size for this WebSocket.
+    /// Set the maximum message size for this [`WebSocket`].
     ///
     /// This controls the maximum size of messages that can be sent or received.
     /// Messages larger than this size will be rejected.
@@ -499,7 +499,7 @@ impl WebSocket {
     /// Get the current maximum message size.
     ///
     /// Returns the maximum size of messages that can be sent or received
-    /// through this WebSocket connection.
+    /// through this [`WebSocket`] connection.
     ///
     /// # Examples
     ///
@@ -521,9 +521,9 @@ impl WebSocket {
     }
 }
 
-/// Builder for WebSocket connections.
+/// Builder for [`WebSocket`] connections.
 ///
-/// This builder allows you to configure WebSocket connection parameters before
+/// This builder allows you to configure [`WebSocket`] connection parameters before
 /// establishing the connection. It provides a fluent interface for setting options
 /// like maximum message size.
 ///
@@ -557,10 +557,10 @@ impl WebSocketBuilder {
         }
     }
 
-    /// Set the maximum message size for the WebSocket connection.
+    /// Set the maximum message size for the [`WebSocket`] connection.
     ///
     /// This sets the maximum size of messages that can be sent or received
-    /// through the WebSocket connection. Messages larger than this size will be rejected.
+    /// through the [`WebSocket`] connection. Messages larger than this size will be rejected.
     ///
     /// # Arguments
     ///
@@ -587,9 +587,9 @@ impl WebSocketBuilder {
         self
     }
 
-    /// Connect to the WebSocket server at the specified URL.
+    /// Connect to the [`WebSocket`] server at the specified URL.
     ///
-    /// This method establishes the WebSocket connection and returns a [`WebSocket`]
+    /// This method establishes the [`WebSocket`] connection and returns a [`WebSocket`]
     /// instance that can be used to send and receive messages.
     ///
     /// # Arguments

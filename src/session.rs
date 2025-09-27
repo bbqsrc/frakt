@@ -1,6 +1,7 @@
 //! Session configuration and management
 
 use crate::Result;
+use http::{HeaderMap, HeaderValue};
 use objc2::rc::Retained;
 use objc2_foundation::{
     NSDictionary, NSString, NSURLRequestCachePolicy, NSURLSessionConfiguration,
@@ -55,7 +56,7 @@ pub struct SessionConfigurationBuilder {
     use_cookies: bool,
     use_default_proxy: bool,
     proxy_config: Option<ProxyConfig>,
-    headers: HashMap<String, String>,
+    headers: HeaderMap,
     ignore_certificate_errors: bool,
     session_type: SessionType,
 }
@@ -68,7 +69,7 @@ impl Default for SessionConfigurationBuilder {
             use_cookies: true,
             use_default_proxy: true,
             proxy_config: None,
-            headers: HashMap::new(),
+            headers: HeaderMap::new(),
             ignore_certificate_errors: false,
             session_type: SessionType::Default,
         }
@@ -107,14 +108,16 @@ impl SessionConfigurationBuilder {
 
     /// Add a default header
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.headers.insert(name.into(), value.into());
+        let header_name: http::HeaderName = name.into().parse().expect("Invalid header name");
+        let header_value = HeaderValue::from_str(&value.into()).expect("Invalid header value");
+        self.headers.insert(header_name, header_value);
         self
     }
 
     /// Set user agent
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
-        self.headers
-            .insert("User-Agent".to_string(), user_agent.into());
+        let header_value = HeaderValue::from_str(&user_agent.into()).expect("Invalid user agent value");
+        self.headers.insert("User-Agent", header_value);
         self
     }
 
@@ -241,11 +244,11 @@ impl SessionConfigurationBuilder {
 
             // Set default headers
             if !self.headers.is_empty() {
-                let keys: Vec<_> = self.headers.keys().map(|k| NSString::from_str(k)).collect();
+                let keys: Vec<_> = self.headers.keys().map(|k| NSString::from_str(k.as_str())).collect();
                 let values: Vec<_> = self
                     .headers
                     .values()
-                    .map(|v| NSString::from_str(v))
+                    .map(|v| NSString::from_str(v.to_str().expect("Invalid header value")))
                     .collect();
 
                 let dict = NSDictionary::from_retained_objects(

@@ -66,7 +66,7 @@ impl Response {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client.get("https://httpbin.org/status/404").send().await?;
-    /// assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    /// assert_eq!(response.status(), `StatusCode`::NOT_FOUND);
     /// # Ok(())
     /// # }
     /// ```
@@ -370,8 +370,8 @@ impl Response {
     ///
     /// #[derive(Deserialize)]
     /// struct ApiResponse {
-    ///     origin: String,
-    ///     url: String,
+    ///     origin: `String`,
+    ///     url: `String`,
     /// }
     ///
     /// # #[tokio::main]

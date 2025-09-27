@@ -223,7 +223,7 @@ pub use client::{
 };
 pub use error::{Error, Result};
 pub use request::{Request, RequestBuilder};
-pub use response::Response;
+pub use response::{Response, ResponseStream};
 
 // Re-export body types
 pub use body::Body;

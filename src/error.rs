@@ -123,6 +123,13 @@ pub enum Error {
     #[error("Response body exceeds maximum size")]
     ResponseTooLarge,
 
+    /// Invalid header value.
+    ///
+    /// This error occurs when a header value contains invalid characters
+    /// that cannot be converted to a valid HTTP header value.
+    #[error("Invalid header value")]
+    InvalidHeader,
+
     /// Internal library error.
     ///
     /// This error represents internal inconsistencies or unexpected conditions

@@ -36,7 +36,7 @@ use std::borrow::Cow;
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
 ///
-/// // String automatically converts to Body
+/// // `String` automatically converts to [`Body`]
 /// let response = client
 ///     .post("https://api.example.com/data")
 ///     .body("Hello, World!")

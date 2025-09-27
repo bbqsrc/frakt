@@ -1,5 +1,6 @@
 use super::download::{DownloadFuture, DownloadResponse};
 use crate::Result;
+use http::{HeaderMap, HeaderValue};
 
 /// Builder for downloading files in background sessions.
 ///
@@ -39,7 +40,7 @@ pub struct BackgroundDownloadBuilder {
     url: String,
     destination: Option<std::path::PathBuf>,
     progress_callback: Option<std::sync::Arc<crate::delegate::shared_context::ProgressCallback>>,
-    headers: std::collections::HashMap<String, String>,
+    headers: HeaderMap,
     session_identifier: Option<String>,
     background_completion_handler: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
 }
@@ -50,7 +51,7 @@ impl BackgroundDownloadBuilder {
             url,
             destination: None,
             progress_callback: None,
-            headers: std::collections::HashMap::new(),
+            headers: HeaderMap::new(),
             session_identifier: None,
             background_completion_handler: None,
         }
@@ -162,9 +163,11 @@ impl BackgroundDownloadBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.headers.insert(name.into(), value.into());
-        self
+    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> crate::Result<Self> {
+        let header_name: http::HeaderName = name.into().parse().map_err(|_| crate::Error::InvalidHeader)?;
+        let header_value = HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers.insert(header_name, header_value);
+        Ok(self)
     }
 
     /// Set authentication for the background download request.
@@ -195,10 +198,10 @@ impl BackgroundDownloadBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn auth(mut self, auth: crate::Auth) -> Self {
-        self.headers
-            .insert("Authorization".to_string(), auth.to_header_value());
-        self
+    pub fn auth(mut self, auth: crate::Auth) -> crate::Result<Self> {
+        let header_value = HeaderValue::from_str(&auth.to_header_value()).map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers.insert("Authorization", header_value);
+        Ok(self)
     }
 
     /// Set the background session identifier (required for background downloads).
@@ -352,9 +355,10 @@ impl BackgroundDownloadBuilder {
 
             // Set headers
             for (name, value) in &self.headers {
+                let value_str = value.to_str().map_err(|_| crate::Error::InvalidHeader)?;
                 req.setValue_forHTTPHeaderField(
-                    Some(&NSString::from_str(value)),
-                    &NSString::from_str(name),
+                    Some(&NSString::from_str(value_str)),
+                    &NSString::from_str(name.as_str()),
                 );
             }
 

@@ -1,9 +1,7 @@
-use crate::session::SessionConfigurationBuilder;
-use crate::{Request, RequestBuilder, Result};
+use crate::Result;
+use http::{HeaderMap, HeaderValue};
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSURLSession;
-use std::time::Duration;
 
 /// Builder for downloading files directly to disk.
 ///
@@ -41,7 +39,7 @@ pub struct DownloadBuilder {
     session: Retained<NSURLSession>,
     destination: Option<std::path::PathBuf>,
     progress_callback: Option<std::sync::Arc<crate::delegate::shared_context::ProgressCallback>>,
-    headers: std::collections::HashMap<String, String>,
+    headers: HeaderMap,
 }
 
 impl DownloadBuilder {
@@ -51,7 +49,7 @@ impl DownloadBuilder {
             session,
             destination: None,
             progress_callback: None,
-            headers: std::collections::HashMap::new(),
+            headers: HeaderMap::new(),
         }
     }
 
@@ -154,9 +152,11 @@ impl DownloadBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.headers.insert(name.into(), value.into());
-        self
+    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> crate::Result<Self> {
+        let header_name: http::HeaderName = name.into().parse().map_err(|_| crate::Error::InvalidHeader)?;
+        let header_value = HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers.insert(header_name, header_value);
+        Ok(self)
     }
 
     /// Set authentication for the download request.
@@ -185,10 +185,10 @@ impl DownloadBuilder {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn auth(mut self, auth: crate::Auth) -> Self {
-        self.headers
-            .insert("Authorization".to_string(), auth.to_header_value());
-        self
+    pub fn auth(mut self, auth: crate::Auth) -> crate::Result<Self> {
+        let header_value = HeaderValue::from_str(&auth.to_header_value()).map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers.insert("Authorization", header_value);
+        Ok(self)
     }
 
     /// Start the download and return the result.
@@ -244,9 +244,10 @@ impl DownloadBuilder {
 
             // Set headers
             for (name, value) in &self.headers {
+                let value_str = value.to_str().map_err(|_| crate::Error::InvalidHeader)?;
                 req.setValue_forHTTPHeaderField(
-                    Some(&NSString::from_str(value)),
-                    &NSString::from_str(name),
+                    Some(&NSString::from_str(value_str)),
+                    &NSString::from_str(name.as_str()),
                 );
             }
 

@@ -2,10 +2,9 @@
 
 use crate::delegate::shared_context::ProgressCallback;
 use crate::{Error, Result, body::Body};
-use http::Method;
+use http::{HeaderMap, HeaderValue, Method};
 use objc2::rc::Retained;
 use objc2_foundation::{NSMutableURLRequest, NSString, NSURL, NSURLSession};
-use std::collections::HashMap;
 
 
 /// An HTTP request ready to be executed.
@@ -17,7 +16,7 @@ use std::collections::HashMap;
 pub struct Request {
     pub(crate) method: Method,
     pub(crate) url: String,
-    pub(crate) headers: HashMap<String, String>,
+    pub(crate) headers: HeaderMap,
     pub(crate) body: Option<Body>,
     pub(crate) session: Retained<NSURLSession>,
     pub(crate) delegate: Retained<crate::delegate::DataTaskDelegate>,
@@ -57,8 +56,8 @@ impl Request {
             // Set headers
             for (name, value) in &self.headers {
                 req.setValue_forHTTPHeaderField(
-                    Some(&NSString::from_str(value)),
-                    &NSString::from_str(name),
+                    Some(&NSString::from_str(value.to_str().expect("Invalid header value"))),
+                    &NSString::from_str(name.as_str()),
                 );
             }
 
@@ -184,7 +183,7 @@ impl Request {
 pub struct RequestBuilder {
     method: Method,
     url: String,
-    headers: HashMap<String, String>,
+    headers: HeaderMap,
     body: Option<Body>,
     session: Retained<NSURLSession>,
     delegate: Retained<crate::delegate::DataTaskDelegate>,
@@ -201,7 +200,7 @@ impl RequestBuilder {
         Self {
             method,
             url,
-            headers: HashMap::new(),
+            headers: HeaderMap::new(),
             body: None,
             session,
             delegate,
@@ -238,7 +237,9 @@ impl RequestBuilder {
     /// # }
     /// ```
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.headers.insert(name.into(), value.into());
+        let header_name: http::HeaderName = name.into().parse().expect("Invalid header name");
+        let header_value = HeaderValue::from_str(&value.into()).expect("Invalid header value");
+        self.headers.insert(header_name, header_value);
         self
     }
 
@@ -433,8 +434,8 @@ impl RequestBuilder {
     /// # }
     /// ```
     pub fn auth(mut self, auth: crate::Auth) -> Self {
-        self.headers
-            .insert("Authorization".to_string(), auth.to_header_value());
+        let header_value = HeaderValue::from_str(&auth.to_header_value()).expect("Invalid auth header value");
+        self.headers.insert("Authorization", header_value);
         self
     }
 
