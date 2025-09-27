@@ -2,24 +2,66 @@
 
 use std::fmt;
 
-/// Authentication methods supported by the client
+/// Authentication methods supported by HTTP requests.
+///
+/// This enum provides common authentication schemes that can be used with HTTP requests.
+/// Each variant automatically generates the appropriate `Authorization` header value.
+///
+/// # Examples
+///
+/// ```rust
+/// use rsurlsession::{Client, Auth};
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::new()?;
+///
+/// // Basic authentication
+/// let response = client
+///     .get("https://httpbin.org/basic-auth/user/pass")
+///     .auth(Auth::basic("user", "pass"))
+///     .send()
+///     .await?;
+///
+/// // Bearer token
+/// let response = client
+///     .get("https://api.example.com/protected")
+///     .auth(Auth::bearer("your-jwt-token"))
+///     .send()
+///     .await?;
+///
+/// // Custom authentication
+/// let response = client
+///     .get("https://api.example.com/data")
+///     .auth(Auth::custom("ApiKey", "your-api-key"))
+///     .send()
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub enum Auth {
-    /// Basic authentication with username and password
+    /// HTTP Basic authentication with username and password.
+    ///
+    /// This creates an `Authorization: Basic <base64(username:password)>` header.
     Basic {
         /// Username for basic authentication
         username: String,
         /// Password for basic authentication
         password: String,
     },
-    /// Bearer token authentication (OAuth, JWT, etc.)
+    /// Bearer token authentication (OAuth, JWT, etc.).
+    ///
+    /// This creates an `Authorization: Bearer <token>` header.
     Bearer {
         /// Bearer token
         token: String,
     },
-    /// Custom authorization header
+    /// Custom authorization header with a custom scheme.
+    ///
+    /// This creates an `Authorization: <scheme> <credentials>` header.
     Custom {
-        /// Authentication scheme
+        /// Authentication scheme (e.g., "ApiKey", "Digest")
         scheme: String,
         /// Credentials for the scheme
         credentials: String,
@@ -27,7 +69,23 @@ pub enum Auth {
 }
 
 impl Auth {
-    /// Create Basic authentication
+    /// Create HTTP Basic authentication.
+    ///
+    /// This method creates Basic authentication using the provided username and password.
+    /// The credentials will be base64-encoded when the header value is generated.
+    ///
+    /// # Arguments
+    ///
+    /// * `username` - The username for authentication
+    /// * `password` - The password for authentication
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Auth;
+    ///
+    /// let auth = Auth::basic("john_doe", "secret123");
+    /// ```
     pub fn basic(username: impl Into<String>, password: impl Into<String>) -> Self {
         Self::Basic {
             username: username.into(),
@@ -35,14 +93,46 @@ impl Auth {
         }
     }
 
-    /// Create Bearer token authentication
+    /// Create Bearer token authentication.
+    ///
+    /// This method creates Bearer token authentication using the provided token.
+    /// This is commonly used for OAuth 2.0, JWT tokens, and API keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `token` - The bearer token
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Auth;
+    ///
+    /// let auth = Auth::bearer("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...");
+    /// ```
     pub fn bearer(token: impl Into<String>) -> Self {
         Self::Bearer {
             token: token.into(),
         }
     }
 
-    /// Create custom authentication
+    /// Create custom authentication with a custom scheme.
+    ///
+    /// This method allows you to create authentication using any custom scheme
+    /// and credentials. The Authorization header will be formatted as `<scheme> <credentials>`.
+    ///
+    /// # Arguments
+    ///
+    /// * `scheme` - The authentication scheme (e.g., "ApiKey", "Digest", "HMAC")
+    /// * `credentials` - The credentials for the scheme
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Auth;
+    ///
+    /// let auth = Auth::custom("ApiKey", "your-api-key-here");
+    /// let auth = Auth::custom("Digest", "username=\"john\", realm=\"api\"");
+    /// ```
     pub fn custom(scheme: impl Into<String>, credentials: impl Into<String>) -> Self {
         Self::Custom {
             scheme: scheme.into(),
@@ -50,7 +140,26 @@ impl Auth {
         }
     }
 
-    /// Convert authentication to Authorization header value
+    /// Convert authentication to Authorization header value.
+    ///
+    /// This method generates the complete value for the `Authorization` HTTP header
+    /// based on the authentication type. The resulting string can be used directly
+    /// as the header value.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Auth;
+    ///
+    /// let basic_auth = Auth::basic("user", "pass");
+    /// assert_eq!(basic_auth.to_header_value(), "Basic dXNlcjpwYXNz");
+    ///
+    /// let bearer_auth = Auth::bearer("token123");
+    /// assert_eq!(bearer_auth.to_header_value(), "Bearer token123");
+    ///
+    /// let custom_auth = Auth::custom("ApiKey", "secret");
+    /// assert_eq!(custom_auth.to_header_value(), "ApiKey secret");
+    /// ```
     pub fn to_header_value(&self) -> String {
         match self {
             Auth::Basic { username, password } => {

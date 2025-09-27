@@ -1,4 +1,8 @@
 //! HTTP client implementation
+//!
+//! This module provides the main [`Client`] for making HTTP requests using NSURLSession.
+//! The client supports all standard HTTP methods, authentication, cookies, proxy configuration,
+//! and advanced features like WebSocket connections and background downloads.
 
 pub mod background;
 pub mod download;
@@ -15,7 +19,35 @@ use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSURLSession;
 use std::time::Duration;
 
-/// HTTP client for making requests
+/// HTTP client for making requests using NSURLSession.
+///
+/// The `Client` provides a high-level interface for HTTP operations while leveraging
+/// NSURLSession's native performance optimizations including HTTP/2, connection pooling,
+/// and automatic compression.
+///
+/// # Examples
+///
+/// Basic usage:
+/// ```rust
+/// use rsurlsession::Client;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::builder()
+///     .user_agent("MyApp/1.0")
+///     .timeout(std::time::Duration::from_secs(30))
+///     .build()?;
+///
+/// let response = client
+///     .get("https://httpbin.org/json")
+///     .header("Accept", "application/json")
+///     .send()
+///     .await?;
+///
+/// println!("Status: {}", response.status());
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Clone)]
 pub struct Client {
     session: Retained<NSURLSession>,
@@ -25,17 +57,61 @@ pub struct Client {
 }
 
 impl Client {
-    /// Create a new client with default configuration
+    /// Create a new client with default configuration.
+    ///
+    /// This is equivalent to `Client::builder().build()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the NSURLSession configuration cannot be created.
     pub fn new() -> Result<Self> {
         Self::builder().build()
     }
 
-    /// Create a client builder
+    /// Create a client builder for configuring the client.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    /// use std::time::Duration;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::builder()
+    ///     .user_agent("MyApp/1.0")
+    ///     .timeout(Duration::from_secs(30))
+    ///     .use_cookies(true)
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
     }
 
-    /// Create a GET request
+    /// Create a GET request to the specified URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to send the GET request to
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .get("https://httpbin.org/get")
+    ///     .header("Accept", "application/json")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn get(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
             crate::request::Method::GET,
@@ -45,7 +121,29 @@ impl Client {
         )
     }
 
-    /// Create a POST request
+    /// Create a POST request to the specified URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to send the POST request to
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .post("https://httpbin.org/post")
+    ///     .header("Content-Type", "application/json")
+    ///     .body(r#"{"key": "value"}"#)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn post(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
             crate::request::Method::POST,
@@ -55,7 +153,11 @@ impl Client {
         )
     }
 
-    /// Create a PUT request
+    /// Create a PUT request to the specified URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to send the PUT request to
     pub fn put(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
             crate::request::Method::PUT,
@@ -65,7 +167,11 @@ impl Client {
         )
     }
 
-    /// Create a DELETE request
+    /// Create a DELETE request to the specified URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to send the DELETE request to
     pub fn delete(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
             crate::request::Method::DELETE,
@@ -75,7 +181,11 @@ impl Client {
         )
     }
 
-    /// Create a PATCH request
+    /// Create a PATCH request to the specified URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to send the PATCH request to
     pub fn patch(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
             crate::request::Method::PATCH,
@@ -85,7 +195,11 @@ impl Client {
         )
     }
 
-    /// Create a HEAD request
+    /// Create a HEAD request to the specified URL.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to send the HEAD request to
     pub fn head(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
             crate::request::Method::HEAD,
@@ -95,32 +209,143 @@ impl Client {
         )
     }
 
-    /// Execute a request
+    /// Execute a pre-built request.
+    ///
+    /// This is equivalent to calling `request.send().await`.
+    ///
+    /// # Arguments
+    ///
+    /// * `request` - The request to execute
     pub async fn execute(&self, request: Request) -> Result<crate::Response> {
         request.send().await
     }
 
-    /// Download a file directly to disk
+    /// Download a file directly to disk using NSURLSessionDownloadTask.
+    ///
+    /// This method is more efficient for large files as it streams directly to disk
+    /// without loading the entire file into memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to download from
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download("https://example.com/file.zip")
+    ///     .to_file("./downloads/file.zip")
+    ///     .progress(|downloaded, total| {
+    ///         println!("Downloaded: {} / {:?} bytes", downloaded, total);
+    ///     })
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn download(&self, url: &str) -> DownloadBuilder {
         DownloadBuilder::new(url.to_string(), self.session.clone())
     }
 
-    /// Download a file in the background (continues when app is suspended)
+    /// Download a file in the background (continues when app is suspended).
+    ///
+    /// Background downloads are useful for iOS apps that need to download large files
+    /// even when the app is suspended or terminated.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to download from
     pub fn download_background(&self, url: &str) -> BackgroundDownloadBuilder {
         BackgroundDownloadBuilder::new(url.to_string())
     }
 
-    /// Upload a file using NSURLSessionUploadTask
+    /// Upload a file using NSURLSessionUploadTask.
+    ///
+    /// This method provides efficient file uploads with progress tracking.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The URL to upload to
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .upload("https://httpbin.org/post")
+    ///     .file("./upload.txt")
+    ///     .progress(|uploaded, total| {
+    ///         println!("Uploaded: {} / {:?} bytes", uploaded, total);
+    ///     })
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn upload(&self, url: &str) -> UploadBuilder {
         UploadBuilder::new(url.to_string(), self.session.clone())
     }
 
-    /// Get the cookie jar for this client
+    /// Get the cookie jar for this client.
+    ///
+    /// Returns `None` if cookies are disabled for this client.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::builder()
+    ///     .use_cookies(true)
+    ///     .build()?;
+    ///
+    /// if let Some(jar) = client.cookie_jar() {
+    ///     let cookies = jar.all_cookies();
+    ///     println!("Found {} cookies", cookies.len());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn cookie_jar(&self) -> Option<&crate::CookieJar> {
         self.cookie_jar.as_ref()
     }
 
-    /// Create a WebSocket connection
+    /// Create a WebSocket connection using NSURLSessionWebSocketTask.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::{Client, Message, CloseCode};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let websocket = client
+    ///     .websocket()
+    ///     .maximum_message_size(1024 * 1024)
+    ///     .connect("wss://echo.websocket.org")
+    ///     .await?;
+    ///
+    /// // Send and receive messages
+    /// websocket.send(Message::text("Hello")).await?;
+    /// let message = websocket.receive().await?;
+    ///
+    /// // Close the connection
+    /// websocket.close(CloseCode::Normal, Some("Goodbye"));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn websocket(&self) -> crate::websocket::WebSocketBuilder {
         crate::websocket::WebSocketBuilder::new(self.session.clone())
     }

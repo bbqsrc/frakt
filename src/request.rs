@@ -6,27 +6,31 @@ use objc2::rc::Retained;
 use objc2_foundation::{NSMutableURLRequest, NSString, NSURL, NSURLSession};
 use std::collections::HashMap;
 
-/// HTTP methods
+/// HTTP request methods.
+///
+/// This enum represents all standard HTTP methods plus support for custom methods.
+/// All methods are supported by NSURLSession and can be used with any request type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Method {
-    /// GET method
+    /// GET method - retrieve data from the server
     GET,
-    /// POST method
+    /// POST method - send data to the server
     POST,
-    /// PUT method
+    /// PUT method - update or create a resource
     PUT,
-    /// DELETE method
+    /// DELETE method - delete a resource
     DELETE,
-    /// PATCH method
+    /// PATCH method - partially update a resource
     PATCH,
-    /// HEAD method
+    /// HEAD method - retrieve headers only
     HEAD,
-    /// Custom method
+    /// Custom HTTP method
     Custom(String),
 }
 
 impl Method {
-    fn as_str(&self) -> &str {
+    /// Convert the HTTP method to a string representation.
+    pub fn as_str(&self) -> &str {
         match self {
             Method::GET => "GET",
             Method::POST => "POST",
@@ -39,7 +43,12 @@ impl Method {
     }
 }
 
-/// HTTP request
+/// An HTTP request ready to be executed.
+///
+/// This represents a fully configured HTTP request that can be sent using NSURLSession.
+/// Requests are typically created through the [`RequestBuilder`] using methods on [`Client`].
+///
+/// [`Client`]: crate::Client
 pub struct Request {
     pub(crate) method: Method,
     pub(crate) url: String,
@@ -51,7 +60,25 @@ pub struct Request {
 }
 
 impl Request {
-    /// Send the request and get a response
+    /// Send the request and get a response.
+    ///
+    /// This method executes the HTTP request using NSURLSession and returns the response.
+    /// The request is sent asynchronously and the future can be awaited.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`Result`] containing the [`Response`] on success, or an [`Error`] on failure.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail with various errors including:
+    /// - Network connectivity issues
+    /// - Invalid URLs
+    /// - Timeout errors
+    /// - Server errors
+    ///
+    /// [`Response`]: crate::Response
+    /// [`Error`]: crate::Error
     pub async fn send(self) -> Result<crate::Response> {
         // Create NSURLRequest
         let nsurl = unsafe {
@@ -149,7 +176,46 @@ impl Request {
     }
 }
 
-/// Request builder
+/// Builder for constructing HTTP requests.
+///
+/// `RequestBuilder` provides a fluent interface for configuring HTTP requests before sending them.
+/// It supports setting headers, request bodies, authentication, and progress callbacks.
+///
+/// # Examples
+///
+/// Basic request with headers:
+/// ```rust
+/// use rsurlsession::Client;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::new()?;
+/// let response = client
+///     .get("https://api.example.com/data")
+///     .header("Accept", "application/json")
+///     .header("User-Agent", "MyApp/1.0")
+///     .send()
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// POST request with JSON body:
+/// ```rust
+/// use rsurlsession::Client;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::new()?;
+/// let response = client
+///     .post("https://api.example.com/users")
+///     .header("Content-Type", "application/json")
+///     .body(r#"{"name": "John", "email": "john@example.com"}"#)
+///     .send()
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
 pub struct RequestBuilder {
     method: Method,
     url: String,
@@ -178,26 +244,149 @@ impl RequestBuilder {
         }
     }
 
-    /// Add a header
+    /// Add a header to the request.
+    ///
+    /// This method adds a single header field to the request. Headers can be called multiple
+    /// times to add different header fields. If the same header name is used multiple times,
+    /// the last value will be used.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The header name (e.g., "Content-Type", "Authorization")
+    /// * `value` - The header value
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .get("https://api.example.com/data")
+    ///     .header("Accept", "application/json")
+    ///     .header("Authorization", "Bearer token123")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(name.into(), value.into());
         self
     }
 
-    /// Set the request body
+    /// Set the request body.
+    ///
+    /// This method sets the request body using any type that can be converted into a [`Body`].
+    /// Convenient `From` implementations are provided for common types like `String`, `&str`,
+    /// and `Vec<u8>`.
+    ///
+    /// # Arguments
+    ///
+    /// * `body` - The request body content
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // String body
+    /// let response = client
+    ///     .post("https://api.example.com/data")
+    ///     .body("Hello, World!")
+    ///     .send()
+    ///     .await?;
+    ///
+    /// // Binary body
+    /// let data = vec![1, 2, 3, 4];
+    /// let response = client
+    ///     .post("https://api.example.com/upload")
+    ///     .body(data)
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`Body`]: crate::Body
     pub fn body(mut self, body: impl Into<Body>) -> Self {
         self.body = Some(body.into());
         self
     }
 
-    /// Set a JSON body
+    /// Set a JSON body from a serializable value.
+    ///
+    /// This method serializes the provided value to JSON and sets it as the request body
+    /// with the appropriate `Content-Type` header. This feature requires the "json" feature flag.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Any value that implements `serde::Serialize`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the value cannot be serialized to JSON.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    /// use serde_json::json;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .post("https://api.example.com/users")
+    ///     .json(json!({
+    ///         "name": "John Doe",
+    ///         "email": "john@example.com"
+    ///     }))?
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     #[cfg(feature = "json")]
     pub fn json(mut self, value: impl serde::Serialize) -> Result<Self> {
         self.body = Some(Body::json(value)?);
         Ok(self)
     }
 
-    /// Set a form body
+    /// Set a form-urlencoded body from field/value pairs.
+    ///
+    /// This method creates a form-urlencoded request body from a list of field/value pairs
+    /// and sets the appropriate `Content-Type` header to `application/x-www-form-urlencoded`.
+    ///
+    /// # Arguments
+    ///
+    /// * `fields` - A vector of (field, value) tuples to encode as form data
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .post("https://api.example.com/login")
+    ///     .form(vec![
+    ///         ("username", "john_doe"),
+    ///         ("password", "secret123"),
+    ///     ])
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn form(
         mut self,
         fields: Vec<(
@@ -209,20 +398,114 @@ impl RequestBuilder {
         self
     }
 
-    /// Set a text body
+    /// Set a plain text body.
+    ///
+    /// This method sets the request body to plain text with the `Content-Type` header
+    /// set to `text/plain; charset=utf-8`.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The text content to use as the request body
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .post("https://api.example.com/notes")
+    ///     .text("This is a plain text note")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn text(mut self, content: impl Into<String>) -> Self {
         self.body = Some(Body::text(content));
         self
     }
 
-    /// Set authentication for the request
+    /// Set authentication for the request.
+    ///
+    /// This method adds the appropriate `Authorization` header based on the authentication
+    /// method provided. Supported authentication types include Basic, Bearer, and Custom.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth` - The authentication method to use
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::{Client, Auth};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Basic authentication
+    /// let response = client
+    ///     .get("https://api.example.com/protected")
+    ///     .auth(Auth::Basic {
+    ///         username: "user".to_string(),
+    ///         password: "pass".to_string(),
+    ///     })
+    ///     .send()
+    ///     .await?;
+    ///
+    /// // Bearer token
+    /// let response = client
+    ///     .get("https://api.example.com/data")
+    ///     .auth(Auth::Bearer {
+    ///         token: "your-token".to_string(),
+    ///     })
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn auth(mut self, auth: crate::Auth) -> Self {
         self.headers
             .insert("Authorization".to_string(), auth.to_header_value());
         self
     }
 
-    /// Set a progress callback for tracking download progress
+    /// Set a progress callback for tracking download progress.
+    ///
+    /// This method sets a callback function that will be called periodically during
+    /// the request to report download progress. The callback receives the number of
+    /// bytes downloaded so far and the total expected bytes (if known).
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A function that takes (downloaded_bytes, total_bytes) parameters
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .get("https://example.com/large-file.zip")
+    ///     .progress(|downloaded, total| {
+    ///         if let Some(total) = total {
+    ///             let percent = (downloaded as f64 / total as f64) * 100.0;
+    ///             println!("Downloaded: {:.1}%", percent);
+    ///         } else {
+    ///             println!("Downloaded: {} bytes", downloaded);
+    ///         }
+    ///     })
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn progress<F>(mut self, callback: F) -> Self
     where
         F: Fn(u64, Option<u64>) + Send + Sync + 'static,
@@ -231,7 +514,47 @@ impl RequestBuilder {
         self
     }
 
-    /// Send the request
+    /// Send the request and return the response.
+    ///
+    /// This method executes the configured HTTP request using NSURLSession.
+    /// The request is sent asynchronously and this method returns a future
+    /// that resolves to the response.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`Result`] containing the [`Response`] on success, or an [`Error`] on failure.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail with various errors including:
+    /// - Network connectivity issues
+    /// - Invalid URLs or malformed requests
+    /// - Timeout errors
+    /// - Server errors (4xx, 5xx status codes are still successful responses)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .get("https://api.example.com/data")
+    ///     .header("Accept", "application/json")
+    ///     .send()
+    ///     .await?;
+    ///
+    /// println!("Status: {}", response.status());
+    /// let body = response.text().await?;
+    /// println!("Body: {}", body);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`Response`]: crate::Response
+    /// [`Error`]: crate::Error
     pub async fn send(self) -> Result<crate::Response> {
         let request = Request {
             method: self.method,

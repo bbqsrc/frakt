@@ -14,7 +14,7 @@ pub use client::{
     BackgroundDownloadBuilder, Client, DownloadBuilder, DownloadResponse, UploadBuilder,
 };
 pub use error::{Error, Result};
-pub use request::{Request, RequestBuilder};
+pub use request::{Method, Request, RequestBuilder};
 pub use response::Response;
 
 // Re-export body types

@@ -10,32 +10,123 @@ use objc2_foundation::{
     NSURL,
 };
 
-/// Policy for cookie acceptance
+/// Policy for cookie acceptance.
+///
+/// This enum defines how cookies should be handled by the HTTP client.
+/// It maps directly to NSHTTPCookieAcceptPolicy values.
+///
+/// # Examples
+///
+/// ```rust
+/// use rsurlsession::{Client, CookieAcceptPolicy};
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::builder()
+///     .use_cookies(true)
+///     .build()?;
+///
+/// if let Some(jar) = client.cookie_jar() {
+///     jar.set_cookie_accept_policy(CookieAcceptPolicy::Always);
+/// }
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CookieAcceptPolicy {
-    /// Accept cookies
+    /// Accept all cookies.
+    ///
+    /// Cookies will be accepted from all domains and stored in the cookie jar.
     Always,
-    /// Never accept cookies
+    /// Never accept cookies.
+    ///
+    /// All cookies will be rejected and not stored.
     Never,
-    /// Accept cookies only from main document URL
+    /// Accept cookies only from the main document domain.
+    ///
+    /// Cookies will only be accepted if they come from the same domain as
+    /// the main document URL. This helps prevent third-party tracking cookies.
     OnlyFromMainDocumentDomain,
 }
 
-/// A cookie jar that manages HTTP cookies using NSHTTPCookieStorage
+/// A cookie jar that manages HTTP cookies using NSHTTPCookieStorage.
+///
+/// `CookieJar` provides a high-level interface for managing HTTP cookies. It wraps
+/// NSHTTPCookieStorage and provides methods for adding, removing, and querying cookies.
+/// Cookies are automatically sent with requests and stored from responses when enabled.
+///
+/// # Examples
+///
+/// ```rust
+/// use rsurlsession::{Client, CookieJar, Cookie};
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// // Create a client with cookies enabled
+/// let client = Client::builder()
+///     .use_cookies(true)
+///     .build()?;
+///
+/// // Access the cookie jar
+/// if let Some(jar) = client.cookie_jar() {
+///     // Add a custom cookie
+///     let cookie = Cookie::new("session", "abc123")
+///         .domain("example.com")
+///         .path("/")
+///         .secure(true);
+///     jar.add_cookie(cookie)?;
+///
+///     // Get all cookies
+///     let cookies = jar.all_cookies();
+///     println!("Found {} cookies", cookies.len());
+/// }
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct CookieJar {
     storage: Retained<NSHTTPCookieStorage>,
 }
 
 impl CookieJar {
-    /// Create a new cookie jar with shared storage
+    /// Create a new cookie jar with shared storage.
+    ///
+    /// This creates a cookie jar using the shared NSHTTPCookieStorage instance,
+    /// which means cookies will be shared across all HTTP clients in the application.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::CookieJar;
+    ///
+    /// let jar = CookieJar::new();
+    /// ```
     pub fn new() -> Self {
         Self {
             storage: unsafe { NSHTTPCookieStorage::sharedHTTPCookieStorage() },
         }
     }
 
-    /// Create a new cookie jar with storage for a specific group container
+    /// Create a new cookie jar with storage for a specific group container.
+    ///
+    /// This creates a cookie jar that uses a separate cookie storage for the specified
+    /// group container identifier. This is useful for app extensions or when you need
+    /// isolated cookie storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `identifier` - The group container identifier
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::CookieJar;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let jar = CookieJar::for_group_container("group.com.example.app")?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn for_group_container(identifier: &str) -> Result<Self> {
         let storage = unsafe {
             NSHTTPCookieStorage::sharedCookieStorageForGroupContainerIdentifier(

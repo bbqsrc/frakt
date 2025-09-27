@@ -3,7 +3,48 @@
 use bytes::Bytes;
 use std::borrow::Cow;
 
-/// Request body types
+/// Request body content for HTTP requests.
+///
+/// This enum represents different types of request bodies that can be sent with HTTP requests.
+/// It supports common content types including text, binary data, form data, JSON, and multipart forms.
+///
+/// # Examples
+///
+/// Creating different body types:
+/// ```rust
+/// use rsurlsession::Body;
+///
+/// // Text body
+/// let body = Body::text("Hello, World!");
+///
+/// // Binary body
+/// let data = vec![1, 2, 3, 4];
+/// let body = Body::bytes(data, "application/octet-stream");
+///
+/// // Form data
+/// let body = Body::form(vec![
+///     ("username", "john"),
+///     ("password", "secret"),
+/// ]);
+/// ```
+///
+/// Using convenient `From` implementations:
+/// ```rust
+/// use rsurlsession::{Client, Body};
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::new()?;
+///
+/// // String automatically converts to Body
+/// let response = client
+///     .post("https://api.example.com/data")
+///     .body("Hello, World!")
+///     .send()
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub enum Body {
     /// Empty body
@@ -38,7 +79,28 @@ pub enum Body {
     },
 }
 
-/// A part of multipart form data
+/// A single part of multipart form data.
+///
+/// This struct represents one field in a multipart/form-data request body.
+/// It can contain either text data or file uploads with optional content type and filename.
+///
+/// # Examples
+///
+/// ```rust
+/// use rsurlsession::MultipartPart;
+///
+/// // Text field
+/// let text_part = MultipartPart::text("description", "A sample file");
+///
+/// // File field
+/// let file_data = vec![1, 2, 3, 4];
+/// let file_part = MultipartPart::file(
+///     "upload",
+///     file_data,
+///     "data.bin",
+///     Some("application/octet-stream".to_string())
+/// );
+/// ```
 #[cfg(feature = "multipart")]
 #[derive(Debug, Clone)]
 pub struct MultipartPart {
@@ -53,12 +115,28 @@ pub struct MultipartPart {
 }
 
 impl Body {
-    /// Create an empty body
+    /// Create an empty body.
+    ///
+    /// This creates a body with no content, typically used for GET, HEAD, and DELETE requests.
     pub fn empty() -> Self {
         Self::Empty
     }
 
-    /// Create a body from bytes
+    /// Create a body from raw bytes with a specific content type.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The raw bytes to use as body content
+    /// * `content_type` - The MIME type of the content
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Body;
+    ///
+    /// let data = vec![0xFF, 0xD8, 0xFF, 0xE0]; // JPEG header
+    /// let body = Body::bytes(data, "image/jpeg");
+    /// ```
     pub fn bytes(content: impl Into<Bytes>, content_type: impl Into<String>) -> Self {
         Self::Bytes {
             content: content.into(),
@@ -66,7 +144,21 @@ impl Body {
         }
     }
 
-    /// Create a body from text
+    /// Create a body from plain text.
+    ///
+    /// This sets the content type to `text/plain; charset=utf-8`.
+    ///
+    /// # Arguments
+    ///
+    /// * `content` - The text content to use as body
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Body;
+    ///
+    /// let body = Body::text("Hello, World!");
+    /// ```
     pub fn text(content: impl Into<String>) -> Self {
         Self::Bytes {
             content: content.into().into(),
@@ -74,7 +166,26 @@ impl Body {
         }
     }
 
-    /// Create a form body
+    /// Create a form-urlencoded body from field/value pairs.
+    ///
+    /// This creates a body with content type `application/x-www-form-urlencoded`
+    /// and URL-encodes the provided field/value pairs.
+    ///
+    /// # Arguments
+    ///
+    /// * `fields` - A vector of (field_name, field_value) tuples
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Body;
+    ///
+    /// let body = Body::form(vec![
+    ///     ("username", "john_doe"),
+    ///     ("password", "secret123"),
+    ///     ("remember_me", "true"),
+    /// ]);
+    /// ```
     pub fn form(fields: Vec<(impl Into<Cow<'static, str>>, impl Into<Cow<'static, str>>)>) -> Self {
         Self::Form {
             fields: fields
@@ -84,7 +195,34 @@ impl Body {
         }
     }
 
-    /// Create a JSON body
+    /// Create a JSON body from a serializable value.
+    ///
+    /// This serializes the provided value to JSON and sets the content type to
+    /// `application/json`. This feature requires the "json" feature flag.
+    ///
+    /// # Arguments
+    ///
+    /// * `value` - Any value that implements `serde::Serialize`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the value cannot be serialized to JSON.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Body;
+    /// use serde_json::json;
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let body = Body::json(json!({
+    ///     "name": "John Doe",
+    ///     "age": 30,
+    ///     "active": true
+    /// }))?;
+    /// # Ok(())
+    /// # }
+    /// ```
     #[cfg(feature = "json")]
     pub fn json(value: impl serde::Serialize) -> Result<Self, crate::Error> {
         Ok(Self::Json {
@@ -92,13 +230,56 @@ impl Body {
         })
     }
 
-    /// Create a multipart body
+    /// Create a multipart form-data body.
+    ///
+    /// This creates a body with content type `multipart/form-data` containing
+    /// the provided parts. This feature requires the "multipart" feature flag.
+    ///
+    /// # Arguments
+    ///
+    /// * `parts` - A vector of multipart parts to include
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::{Body, MultipartPart};
+    ///
+    /// let parts = vec![
+    ///     MultipartPart::text("description", "Profile image"),
+    ///     MultipartPart::file("image", vec![1, 2, 3, 4], "avatar.jpg", Some("image/jpeg".to_string())),
+    /// ];
+    /// let body = Body::multipart(parts);
+    /// ```
     #[cfg(feature = "multipart")]
     pub fn multipart(parts: Vec<MultipartPart>) -> Self {
         Self::Multipart { parts }
     }
 
-    /// Create a body from a file
+    /// Create a body by reading from a file.
+    ///
+    /// This method reads the entire file into memory and creates a bytes body.
+    /// If no content type is provided, it defaults to `application/octet-stream`.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file to read
+    /// * `content_type` - Optional MIME type for the file content
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Body;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let body = Body::from_file("image.jpg", Some("image/jpeg".to_string())).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn from_file<P: AsRef<std::path::Path>>(
         path: P,
         content_type: Option<String>,

@@ -18,6 +18,18 @@ pub enum Message {
     Binary(Vec<u8>),
 }
 
+impl From<Vec<u8>> for Message {
+    fn from(data: Vec<u8>) -> Self {
+        Message::Binary(data)
+    }
+}
+
+impl From<String> for Message {
+    fn from(text: String) -> Self {
+        Message::Text(text)
+    }
+}
+
 impl Message {
     /// Create a text message
     pub fn text(text: impl Into<String>) -> Self {
@@ -137,7 +149,8 @@ impl WebSocket {
     }
 
     /// Send a message
-    pub async fn send(&self, message: Message) -> Result<()> {
+    pub async fn send(&self, message: impl Into<Message>) -> Result<()> {
+        let message: Message = message.into();
         let ns_message = message.to_ns_message()?;
 
         let (tx, rx) = oneshot::channel();
