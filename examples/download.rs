@@ -41,10 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- Testing file download ---");
 
     // Download a small file
-    let response = client
-        .get("https://httpbin.org/robots.txt")
-        .send()
-        .await?;
+    let response = client.get("https://httpbin.org/robots.txt").send().await?;
 
     println!("File download status: {}", response.status());
 

@@ -17,6 +17,15 @@ pub enum CachingBehavior {
     Disabled,
 }
 
+/// Session configuration type
+#[derive(Debug, Clone)]
+pub enum SessionType {
+    /// Default foreground session
+    Default,
+    /// Background session with identifier
+    Background(String),
+}
+
 /// Session configuration builder
 #[derive(Debug)]
 pub struct SessionConfigurationBuilder {
@@ -26,6 +35,7 @@ pub struct SessionConfigurationBuilder {
     use_default_proxy: bool,
     headers: HashMap<String, String>,
     ignore_certificate_errors: bool,
+    session_type: SessionType,
 }
 
 impl Default for SessionConfigurationBuilder {
@@ -37,6 +47,7 @@ impl Default for SessionConfigurationBuilder {
             use_default_proxy: true,
             headers: HashMap::new(),
             ignore_certificate_errors: false,
+            session_type: SessionType::Default,
         }
     }
 }
@@ -79,7 +90,8 @@ impl SessionConfigurationBuilder {
 
     /// Set user agent
     pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
-        self.headers.insert("User-Agent".to_string(), user_agent.into());
+        self.headers
+            .insert("User-Agent".to_string(), user_agent.into());
         self
     }
 
@@ -89,10 +101,24 @@ impl SessionConfigurationBuilder {
         self
     }
 
+    /// Create a background session with the given identifier
+    /// Background sessions allow downloads/uploads to continue when the app is suspended
+    pub fn background_session(mut self, identifier: impl Into<String>) -> Self {
+        self.session_type = SessionType::Background(identifier.into());
+        self
+    }
+
     /// Build the NSURLSessionConfiguration
     pub(crate) fn build(self) -> Result<Retained<NSURLSessionConfiguration>> {
         unsafe {
-            let config = NSURLSessionConfiguration::defaultSessionConfiguration();
+            let config = match self.session_type {
+                SessionType::Default => NSURLSessionConfiguration::defaultSessionConfiguration(),
+                SessionType::Background(identifier) => {
+                    NSURLSessionConfiguration::backgroundSessionConfigurationWithIdentifier(
+                        &NSString::from_str(&identifier),
+                    )
+                }
+            };
 
             // Set caching behavior
             if self.caching == CachingBehavior::Disabled {
@@ -118,7 +144,11 @@ impl SessionConfigurationBuilder {
             // Set default headers
             if !self.headers.is_empty() {
                 let keys: Vec<_> = self.headers.keys().map(|k| NSString::from_str(k)).collect();
-                let values: Vec<_> = self.headers.values().map(|v| NSString::from_str(v)).collect();
+                let values: Vec<_> = self
+                    .headers
+                    .values()
+                    .map(|v| NSString::from_str(v))
+                    .collect();
 
                 let dict = NSDictionary::from_retained_objects(
                     &keys.iter().map(|s| &**s).collect::<Vec<_>>(),
@@ -137,5 +167,15 @@ impl SessionConfigurationBuilder {
     /// Get whether certificate errors should be ignored
     pub(crate) fn should_ignore_certificate_errors(&self) -> bool {
         self.ignore_certificate_errors
+    }
+
+    /// Get whether this is a background session
+    pub(crate) fn is_background_session(&self) -> bool {
+        matches!(self.session_type, SessionType::Background(_))
+    }
+
+    /// Get the session type
+    pub(crate) fn session_type(&self) -> &SessionType {
+        &self.session_type
     }
 }

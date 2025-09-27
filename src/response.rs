@@ -85,7 +85,9 @@ impl Response {
                         let key = keys.objectAtIndex(i);
                         if let Some(key_str) = key.downcast_ref::<objc2_foundation::NSString>() {
                             if let Some(value) = headers_dict.objectForKey(&key) {
-                                if let Some(value_str) = value.downcast_ref::<objc2_foundation::NSString>() {
+                                if let Some(value_str) =
+                                    value.downcast_ref::<objc2_foundation::NSString>()
+                                {
                                     let key_string = key_str.to_str(pool).to_string();
                                     let value_string = value_str.to_str(pool).to_string();
                                     result.insert(key_string, value_string);
@@ -116,9 +118,9 @@ impl Response {
     /// Get the MIME type
     pub fn content_type(&self) -> Option<String> {
         unsafe {
-            self.response.MIMEType().map(|mime| {
-                objc2::rc::autoreleasepool(|pool| mime.to_str(pool).to_string())
-            })
+            self.response
+                .MIMEType()
+                .map(|mime| objc2::rc::autoreleasepool(|pool| mime.to_str(pool).to_string()))
         }
     }
 
@@ -178,23 +180,24 @@ impl tokio::io::AsyncRead for ResponseStream {
         }
 
         // Try to read data from the shared response buffer
-        let (has_data, to_copy) = if let Ok(shared_buffer) = self.task_context.response_buffer.try_lock() {
-            let available_data = shared_buffer.len().saturating_sub(self.bytes_read);
+        let (has_data, to_copy) =
+            if let Ok(shared_buffer) = self.task_context.response_buffer.try_lock() {
+                let available_data = shared_buffer.len().saturating_sub(self.bytes_read);
 
-            if available_data > 0 {
-                // We have new data to read
-                let to_copy = std::cmp::min(available_data, buf.remaining());
-                let start_pos = self.bytes_read;
-                let end_pos = start_pos + to_copy;
+                if available_data > 0 {
+                    // We have new data to read
+                    let to_copy = std::cmp::min(available_data, buf.remaining());
+                    let start_pos = self.bytes_read;
+                    let end_pos = start_pos + to_copy;
 
-                buf.put_slice(&shared_buffer[start_pos..end_pos]);
-                (true, to_copy)
+                    buf.put_slice(&shared_buffer[start_pos..end_pos]);
+                    (true, to_copy)
+                } else {
+                    (false, 0)
+                }
             } else {
                 (false, 0)
-            }
-        } else {
-            (false, 0)
-        };
+            };
 
         if has_data {
             self.bytes_read += to_copy;

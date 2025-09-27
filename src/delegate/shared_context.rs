@@ -1,17 +1,45 @@
 //! Shared context for task delegates
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use arc_swap::ArcSwapOption;
 use objc2::rc::Retained;
-use objc2_foundation::NSError;
+use objc2_foundation::{NSError, NSURL};
 use tokio::sync::Mutex;
 
 use super::GenericWaker;
 
 /// Progress callback function type
 pub type ProgressCallback = dyn Fn(u64, Option<u64>) + Send + Sync;
+
+/// Download-specific context
+pub struct DownloadContext {
+    /// Destination file path
+    pub destination_path: Option<std::path::PathBuf>,
+    /// Temporary download location from NSURLSession
+    pub download_location: ArcSwapOption<Retained<NSURL>>,
+    /// Final location after copying the file
+    pub final_location: ArcSwapOption<std::path::PathBuf>,
+}
+
+impl DownloadContext {
+    pub fn new(destination_path: Option<std::path::PathBuf>) -> Self {
+        Self {
+            destination_path,
+            download_location: ArcSwapOption::new(None),
+            final_location: ArcSwapOption::new(None),
+        }
+    }
+
+    pub fn set_download_location(&self, location: Retained<NSURL>) {
+        self.download_location.store(Some(Arc::new(location)));
+    }
+
+    pub fn set_final_location(&self, path: std::path::PathBuf) {
+        self.final_location.store(Some(Arc::new(path)));
+    }
+}
 
 /// Shared context for task delegates
 pub struct TaskSharedContext {
@@ -33,6 +61,8 @@ pub struct TaskSharedContext {
     pub total_bytes_expected: AtomicU64,
     /// Progress callback
     pub progress_callback: Option<Arc<ProgressCallback>>,
+    /// Download-specific context (for download tasks)
+    pub download_context: Option<Arc<DownloadContext>>,
 }
 
 impl TaskSharedContext {
@@ -48,6 +78,7 @@ impl TaskSharedContext {
             bytes_downloaded: AtomicU64::new(0),
             total_bytes_expected: AtomicU64::new(0),
             progress_callback: None,
+            download_context: None,
         }
     }
 
@@ -63,6 +94,26 @@ impl TaskSharedContext {
             bytes_downloaded: AtomicU64::new(0),
             total_bytes_expected: AtomicU64::new(0),
             progress_callback: Some(callback),
+            download_context: None,
+        }
+    }
+
+    /// Create new shared context for download with destination path
+    pub fn with_download(
+        destination_path: Option<std::path::PathBuf>,
+        progress_callback: Option<Arc<ProgressCallback>>,
+    ) -> Self {
+        Self {
+            response: ArcSwapOption::new(None),
+            waker: GenericWaker::new(),
+            completed: AtomicBool::new(false),
+            error: ArcSwapOption::new(None),
+            response_buffer: Arc::new(Mutex::new(Vec::new())),
+            max_response_buffer_size: Arc::new(AtomicU64::new(u64::MAX)),
+            bytes_downloaded: AtomicU64::new(0),
+            total_bytes_expected: AtomicU64::new(0),
+            progress_callback,
+            download_context: Some(Arc::new(DownloadContext::new(destination_path))),
         }
     }
 
@@ -114,11 +165,18 @@ impl TaskSharedContext {
 
     /// Update progress when new data is received
     pub fn update_progress(&self, additional_bytes: u64) {
-        let new_downloaded = self.bytes_downloaded.fetch_add(additional_bytes, Ordering::AcqRel) + additional_bytes;
+        let new_downloaded = self
+            .bytes_downloaded
+            .fetch_add(additional_bytes, Ordering::AcqRel)
+            + additional_bytes;
 
         if let Some(ref callback) = self.progress_callback {
             let total_expected = self.total_bytes_expected.load(Ordering::Acquire);
-            let total = if total_expected > 0 { Some(total_expected) } else { None };
+            let total = if total_expected > 0 {
+                Some(total_expected)
+            } else {
+                None
+            };
             callback(new_downloaded, total);
         }
     }
@@ -127,7 +185,24 @@ impl TaskSharedContext {
     pub fn get_progress(&self) -> (u64, Option<u64>) {
         let downloaded = self.bytes_downloaded.load(Ordering::Acquire);
         let total_expected = self.total_bytes_expected.load(Ordering::Acquire);
-        let total = if total_expected > 0 { Some(total_expected) } else { None };
+        let total = if total_expected > 0 {
+            Some(total_expected)
+        } else {
+            None
+        };
         (downloaded, total)
+    }
+
+    /// Set error from string message
+    pub fn set_error_from_string(&self, message: String) {
+        // Create a simple NSError for the message
+        let error = unsafe {
+            objc2_foundation::NSError::errorWithDomain_code_userInfo(
+                &objc2_foundation::NSString::from_str("RSURLSessionError"),
+                -1,
+                None,
+            )
+        };
+        self.error.store(Some(Arc::new(error)));
     }
 }

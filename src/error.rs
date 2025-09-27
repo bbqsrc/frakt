@@ -45,6 +45,10 @@ pub enum Error {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    /// I/O error
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+
     /// Response body too large
     #[error("Response body exceeds maximum size")]
     ResponseTooLarge,
@@ -63,9 +67,7 @@ impl Error {
         let domain = error.domain();
         let code = error.code();
         let message = unsafe {
-            objc2::rc::autoreleasepool(|pool| {
-                error.localizedDescription().to_str(pool).to_string()
-            })
+            objc2::rc::autoreleasepool(|pool| error.localizedDescription().to_str(pool).to_string())
         };
 
         if unsafe { domain.isEqualToString(&NSURLErrorDomain) } {
@@ -73,13 +75,18 @@ impl Error {
                 -1001 => Error::Timeout,
                 -999 => Error::Cancelled,
                 -1200..=-1000 => Error::Tls { message },
-                _ => Error::Network { code: code.try_into().unwrap(), message },
+                _ => Error::Network {
+                    code: code.try_into().unwrap(),
+                    message,
+                },
             }
         } else {
-            Error::Internal(format!("Domain: {}, Code: {}, Message: {}",
-                unsafe {
-                    objc2::rc::autoreleasepool(|pool| domain.to_str(pool).to_string())
-                }, code, message))
+            Error::Internal(format!(
+                "Domain: {}, Code: {}, Message: {}",
+                unsafe { objc2::rc::autoreleasepool(|pool| domain.to_str(pool).to_string()) },
+                code,
+                message
+            ))
         }
     }
 }

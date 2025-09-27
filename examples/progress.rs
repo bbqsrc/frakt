@@ -19,15 +19,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let response = client
         .get("https://httpbin.org/bytes/5242880") // Download 5MB for more granular progress
         .header("Accept", "application/octet-stream")
-        .progress(|downloaded, total| {
-            match total {
-                Some(total_bytes) => {
-                    let percentage = (downloaded as f64 / total_bytes as f64) * 100.0;
-                    println!("Progress: {}/{} bytes ({:.1}%)", downloaded, total_bytes, percentage);
-                }
-                None => {
-                    println!("Progress: {} bytes downloaded", downloaded);
-                }
+        .progress(|downloaded, total| match total {
+            Some(total_bytes) => {
+                let percentage = (downloaded as f64 / total_bytes as f64) * 100.0;
+                println!(
+                    "Progress: {}/{} bytes ({:.1}%)",
+                    downloaded, total_bytes, percentage
+                );
+            }
+            None => {
+                println!("Progress: {} bytes downloaded", downloaded);
             }
         })
         .send()

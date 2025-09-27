@@ -77,7 +77,10 @@ impl Body {
     /// Create a form body
     pub fn form(fields: Vec<(impl Into<Cow<'static, str>>, impl Into<Cow<'static, str>>)>) -> Self {
         Self::Form {
-            fields: fields.into_iter().map(|(k, v)| (k.into(), v.into())).collect(),
+            fields: fields
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
         }
     }
 
@@ -93,6 +96,20 @@ impl Body {
     #[cfg(feature = "multipart")]
     pub fn multipart(parts: Vec<MultipartPart>) -> Self {
         Self::Multipart { parts }
+    }
+
+    /// Create a body from a file
+    pub async fn from_file<P: AsRef<std::path::Path>>(
+        path: P,
+        content_type: Option<String>,
+    ) -> Result<Self, crate::Error> {
+        let content = tokio::fs::read(path).await?;
+        let content_type = content_type.unwrap_or_else(|| "application/octet-stream".to_string());
+
+        Ok(Self::Bytes {
+            content: content.into(),
+            content_type,
+        })
     }
 }
 
@@ -121,5 +138,27 @@ impl MultipartPart {
             content_type,
             filename: Some(filename.into()),
         }
+    }
+
+    /// Create a file part from a file path
+    pub async fn from_file<P: AsRef<std::path::Path>>(
+        name: impl Into<String>,
+        path: P,
+        content_type: Option<String>,
+    ) -> Result<Self, crate::Error> {
+        let content = tokio::fs::read(&path).await?;
+        let filename = path
+            .as_ref()
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("file")
+            .to_string();
+
+        Ok(Self {
+            name: name.into(),
+            content: content.into(),
+            content_type,
+            filename: Some(filename),
+        })
     }
 }

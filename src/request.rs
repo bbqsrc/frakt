@@ -1,9 +1,9 @@
 //! Request types and builders
 
-use crate::{body::Body, Error, Result};
 use crate::delegate::shared_context::ProgressCallback;
+use crate::{Error, Result, body::Body};
 use objc2::rc::Retained;
-use objc2_foundation::{NSMutableURLRequest, NSString, NSURLSession, NSURL};
+use objc2_foundation::{NSMutableURLRequest, NSString, NSURL, NSURLSession};
 use std::collections::HashMap;
 
 /// HTTP methods
@@ -55,8 +55,7 @@ impl Request {
     pub async fn send(self) -> Result<crate::Response> {
         // Create NSURLRequest
         let nsurl = unsafe {
-            NSURL::URLWithString(&NSString::from_str(&self.url))
-                .ok_or(Error::InvalidUrl)?
+            NSURL::URLWithString(&NSString::from_str(&self.url)).ok_or(Error::InvalidUrl)?
         };
 
         let nsrequest = unsafe {
@@ -75,7 +74,10 @@ impl Request {
             if let Some(body) = &self.body {
                 match body {
                     Body::Empty => {}
-                    Body::Bytes { content, content_type } => {
+                    Body::Bytes {
+                        content,
+                        content_type,
+                    } => {
                         req.setValue_forHTTPHeaderField(
                             Some(&NSString::from_str(content_type)),
                             &NSString::from_str("Content-Type"),
@@ -122,15 +124,15 @@ impl Request {
 
         // Create task context
         let task_context = if let Some(progress_callback) = self.progress_callback {
-            std::sync::Arc::new(crate::delegate::TaskSharedContext::with_progress_callback(progress_callback))
+            std::sync::Arc::new(crate::delegate::TaskSharedContext::with_progress_callback(
+                progress_callback,
+            ))
         } else {
             std::sync::Arc::new(crate::delegate::TaskSharedContext::new())
         };
 
         // Create data task
-        let data_task = unsafe {
-            self.session.dataTaskWithRequest(&nsrequest)
-        };
+        let data_task = unsafe { self.session.dataTaskWithRequest(&nsrequest) };
 
         // Register the task context with the delegate using the task identifier
         let task_id = unsafe { data_task.taskIdentifier() } as usize;
@@ -196,7 +198,13 @@ impl RequestBuilder {
     }
 
     /// Set a form body
-    pub fn form(mut self, fields: Vec<(impl Into<std::borrow::Cow<'static, str>>, impl Into<std::borrow::Cow<'static, str>>)>) -> Self {
+    pub fn form(
+        mut self,
+        fields: Vec<(
+            impl Into<std::borrow::Cow<'static, str>>,
+            impl Into<std::borrow::Cow<'static, str>>,
+        )>,
+    ) -> Self {
         self.body = Some(Body::form(fields));
         self
     }
@@ -271,7 +279,9 @@ impl std::future::Future for ResponseFuture {
                 return std::task::Poll::Ready(Ok(response));
             }
 
-            return std::task::Poll::Ready(Err(Error::Internal("No response received".to_string())));
+            return std::task::Poll::Ready(Err(Error::Internal(
+                "No response received".to_string(),
+            )));
         }
 
         // Register waker
@@ -285,7 +295,12 @@ impl std::future::Future for ResponseFuture {
     }
 }
 
-fn encode_form_fields(fields: &[(std::borrow::Cow<'static, str>, std::borrow::Cow<'static, str>)]) -> String {
+fn encode_form_fields(
+    fields: &[(
+        std::borrow::Cow<'static, str>,
+        std::borrow::Cow<'static, str>,
+    )],
+) -> String {
     fields
         .iter()
         .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))

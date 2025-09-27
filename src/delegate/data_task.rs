@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
+use block2::DynBlock;
 use objc2::rc::Retained;
-use objc2::{define_class, msg_send, AllocAnyThread, DefinedClass};
+use objc2::{AllocAnyThread, DefinedClass, define_class, msg_send};
 use objc2_foundation::{
-    NSCopying, NSData, NSError, NSObject, NSObjectProtocol, NSURLResponse,
-    NSURLSession, NSURLSessionDataDelegate, NSURLSessionDataTask, NSURLSessionDelegate,
+    NSCopying, NSData, NSError, NSObject, NSObjectProtocol, NSURLResponse, NSURLSession,
+    NSURLSessionDataDelegate, NSURLSessionDataTask, NSURLSessionDelegate,
     NSURLSessionResponseDisposition, NSURLSessionTask, NSURLSessionTaskDelegate,
 };
-use block2::DynBlock;
 
 use super::TaskSharedContext;
 
@@ -74,7 +74,9 @@ define_class!(
             if let Ok(contexts) = ivars.task_contexts.lock() {
                 if let Some(shared_context) = contexts.get(&task_id) {
                     // Store the response in shared context
-                    shared_context.response.store(Some(Arc::new(response.copy())));
+                    shared_context
+                        .response
+                        .store(Some(Arc::new(response.copy())));
 
                     // Set expected content length for progress tracking
                     let expected_length = unsafe { response.expectedContentLength() };
@@ -107,7 +109,9 @@ define_class!(
                     // We need to handle this synchronously since we're not in a tokio context
                     // Instead of async append_data, we'll access the buffer directly
                     if let Ok(mut buffer) = shared_context.response_buffer.try_lock() {
-                        let max_size = shared_context.max_response_buffer_size.load(std::sync::atomic::Ordering::Acquire);
+                        let max_size = shared_context
+                            .max_response_buffer_size
+                            .load(std::sync::atomic::Ordering::Acquire);
                         if buffer.len() as u64 + bytes.len() as u64 <= max_size {
                             buffer.extend_from_slice(&bytes);
 
