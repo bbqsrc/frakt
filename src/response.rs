@@ -1,9 +1,9 @@
 //! Response handling
 
 use crate::{Error, Result};
+use http::{HeaderMap, StatusCode};
 use objc2::rc::Retained;
 use objc2_foundation::{NSHTTPURLResponse, NSURLResponse};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// HTTP response from an NSURLSession request.
@@ -55,26 +55,27 @@ impl Response {
     /// Get the HTTP response status code.
     ///
     /// Returns the HTTP status code for the response. For non-HTTP responses,
-    /// this method returns 200 by default.
+    /// this method returns 200 OK by default.
     ///
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::Client;
+    /// use rsurlsession::{Client, http::StatusCode};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client.get("https://httpbin.org/status/404").send().await?;
-    /// assert_eq!(response.status(), 404);
+    /// assert_eq!(response.status(), StatusCode::NOT_FOUND);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn status(&self) -> u16 {
+    pub fn status(&self) -> StatusCode {
         if let Some(http_response) = self.http_response() {
-            unsafe { http_response.statusCode() as u16 }
+            let code = unsafe { http_response.statusCode() as u16 };
+            StatusCode::from_u16(code).unwrap_or(StatusCode::OK)
         } else {
-            200 // Non-HTTP responses default to 200
+            StatusCode::OK // Non-HTTP responses default to 200 OK
         }
     }
 
@@ -82,24 +83,21 @@ impl Response {
     ///
     /// Returns `true` if the status code is in the 200-299 range.
     pub fn is_success(&self) -> bool {
-        let status = self.status();
-        (200..300).contains(&status)
+        self.status().is_success()
     }
 
     /// Check if the response status indicates a client error (4xx).
     ///
     /// Returns `true` if the status code is in the 400-499 range.
     pub fn is_client_error(&self) -> bool {
-        let status = self.status();
-        (400..500).contains(&status)
+        self.status().is_client_error()
     }
 
     /// Check if the response status indicates a server error (5xx).
     ///
     /// Returns `true` if the status code is in the 500-599 range.
     pub fn is_server_error(&self) -> bool {
-        let status = self.status();
-        (500..600).contains(&status)
+        self.status().is_server_error()
     }
 
     /// Get the expected content length from headers.
@@ -170,7 +168,7 @@ impl Response {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn header(&self, name: &str) -> Option<String> {
+    pub fn header(&self, name: &str) -> Option<http::HeaderValue> {
         self.headers().get(name).cloned()
     }
 
@@ -195,11 +193,11 @@ impl Response {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn headers(&self) -> HashMap<String, String> {
+    pub fn headers(&self) -> HeaderMap {
         if let Some(http_response) = self.http_response() {
             unsafe {
                 let headers_dict = http_response.allHeaderFields();
-                let mut result = HashMap::new();
+                let mut result = HeaderMap::new();
 
                 objc2::rc::autoreleasepool(|pool| {
                     // Get all keys and iterate through them
@@ -211,9 +209,16 @@ impl Response {
                                 if let Some(value_str) =
                                     value.downcast_ref::<objc2_foundation::NSString>()
                                 {
-                                    let key_string = key_str.to_str(pool).to_string();
-                                    let value_string = value_str.to_str(pool).to_string();
-                                    result.insert(key_string, value_string);
+                                    let key_string = key_str.to_str(pool);
+                                    let value_string = value_str.to_str(pool);
+
+                                    // Convert to HeaderName and HeaderValue
+                                    if let (Ok(header_name), Ok(header_value)) = (
+                                        key_string.parse::<http::HeaderName>(),
+                                        value_string.parse::<http::HeaderValue>()
+                                    ) {
+                                        result.insert(header_name, header_value);
+                                    }
                                 }
                             }
                         }
@@ -223,7 +228,7 @@ impl Response {
                 result
             }
         } else {
-            HashMap::new()
+            HeaderMap::new()
         }
     }
 

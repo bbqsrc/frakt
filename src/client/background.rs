@@ -1,7 +1,40 @@
 use super::download::{DownloadFuture, DownloadResponse};
 use crate::Result;
 
-/// Builder for downloading files in background sessions
+/// Builder for downloading files in background sessions.
+///
+/// `BackgroundDownloadBuilder` provides a specialized interface for downloading files
+/// that continue even when the app is suspended or terminated. This is particularly
+/// useful on iOS for large file downloads that need to complete in the background.
+///
+/// Background downloads require a unique session identifier and have special handling
+/// for app lifecycle events.
+///
+/// # Examples
+///
+/// ```rust
+/// use rsurlsession::Client;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::new()?;
+/// let response = client
+///     .download_background("https://example.com/large-file.zip")
+///     .session_identifier("com.myapp.background-downloads")
+///     .to_file("./downloads/large-file.zip")
+///     .progress(|downloaded, total| {
+///         if let Some(total) = total {
+///             let percent = (downloaded as f64 / total as f64) * 100.0;
+///             println!("Background download: {:.1}%", percent);
+///         }
+///     })
+///     .send()
+///     .await?;
+///
+/// println!("Background download completed: {}", response.file_path.display());
+/// # Ok(())
+/// # }
+/// ```
 pub struct BackgroundDownloadBuilder {
     url: String,
     destination: Option<std::path::PathBuf>,
@@ -23,13 +56,74 @@ impl BackgroundDownloadBuilder {
         }
     }
 
-    /// Set the destination file path
+    /// Set the destination file path where the background download will be saved.
+    ///
+    /// The file will be created if it doesn't exist, and any parent directories
+    /// will be created as needed. If the file already exists, it will be overwritten.
+    /// Background downloads require a destination file path to be specified.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path where the download should be saved
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://example.com/large-video.mp4")
+    ///     .session_identifier("com.myapp.downloads")
+    ///     .to_file("./downloads/video.mp4")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn to_file<P: Into<std::path::PathBuf>>(mut self, path: P) -> Self {
         self.destination = Some(path.into());
         self
     }
 
-    /// Set a progress callback
+    /// Set a progress callback to track background download progress.
+    ///
+    /// The callback will be called periodically during the download with the number
+    /// of bytes downloaded so far and the total expected size (if known). This callback
+    /// will continue to be invoked even when the app is suspended, as background downloads
+    /// continue in the background.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A function that takes (downloaded_bytes, total_bytes) parameters
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://example.com/large-file.zip")
+    ///     .session_identifier("com.myapp.downloads")
+    ///     .progress(|downloaded, total| {
+    ///         if let Some(total) = total {
+    ///             let percent = (downloaded as f64 / total as f64) * 100.0;
+    ///             println!("Background download: {:.1}%", percent);
+    ///         } else {
+    ///             println!("Background downloaded: {} bytes", downloaded);
+    ///         }
+    ///     })
+    ///     .to_file("./downloads/file.zip")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn progress<F>(mut self, callback: F) -> Self
     where
         F: Fn(u64, Option<u64>) + Send + Sync + 'static,
@@ -38,26 +132,145 @@ impl BackgroundDownloadBuilder {
         self
     }
 
-    /// Add a header
+    /// Add a header to the background download request.
+    ///
+    /// This allows you to add custom headers to the download request, such as
+    /// authentication headers, API keys, or custom request headers that the server
+    /// may require for the download.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The header name
+    /// * `value` - The header value
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://api.example.com/files/video.mp4")
+    ///     .session_identifier("com.myapp.downloads")
+    ///     .header("X-API-Key", "your-api-key")
+    ///     .header("User-Agent", "MyApp/1.0")
+    ///     .to_file("./downloads/video.mp4")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(name.into(), value.into());
         self
     }
 
-    /// Set authentication for the background download
+    /// Set authentication for the background download request.
+    ///
+    /// This adds the appropriate `Authorization` header based on the authentication
+    /// method provided. The authentication will be preserved during the background
+    /// download even if the app is suspended.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth` - The authentication method to use
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::{Client, Auth};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://api.example.com/protected/large-file.zip")
+    ///     .session_identifier("com.myapp.downloads")
+    ///     .auth(Auth::bearer("your-token"))
+    ///     .to_file("./downloads/protected-file.zip")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn auth(mut self, auth: crate::Auth) -> Self {
         self.headers
             .insert("Authorization".to_string(), auth.to_header_value());
         self
     }
 
-    /// Set the background session identifier (required for background downloads)
+    /// Set the background session identifier (required for background downloads).
+    ///
+    /// The session identifier is a unique string that identifies this background session.
+    /// It should follow reverse-DNS naming conventions (e.g., "com.yourapp.downloads").
+    /// This identifier is used by the system to associate the background download with
+    /// your app and ensure it can continue even when the app is terminated.
+    ///
+    /// **This method is required for background downloads and the download will fail
+    /// if no session identifier is provided.**
+    ///
+    /// # Arguments
+    ///
+    /// * `identifier` - A unique session identifier following reverse-DNS conventions
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://example.com/large-file.zip")
+    ///     .session_identifier("com.mycompany.myapp.downloads")
+    ///     .to_file("./downloads/file.zip")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn session_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.session_identifier = Some(identifier.into());
         self
     }
 
-    /// Set a completion handler that's called when all background events finish
+    /// Set a completion handler that's called when all background events finish.
+    ///
+    /// This handler will be invoked when all background download tasks for this session
+    /// have completed, failed, or been cancelled. This is useful for performing cleanup
+    /// operations or updating UI state when background downloads are finished.
+    ///
+    /// **Note:** Background completion handler registration is not yet fully implemented
+    /// due to complexity with objc2 block conversions. This method will accept the handler
+    /// but emit a warning that registration is pending implementation.
+    ///
+    /// # Arguments
+    ///
+    /// * `handler` - A function to call when all background downloads complete
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://example.com/file.zip")
+    ///     .session_identifier("com.myapp.downloads")
+    ///     .on_background_completion(|| {
+    ///         println!("All background downloads completed!");
+    ///     })
+    ///     .to_file("./downloads/file.zip")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn on_background_completion<F>(mut self, handler: F) -> Self
     where
         F: Fn() + Send + Sync + 'static,
@@ -66,7 +279,60 @@ impl BackgroundDownloadBuilder {
         self
     }
 
-    /// Start the background download
+    /// Start the background download and return the result.
+    ///
+    /// This method initiates the background download using NSURLSessionDownloadTask with
+    /// a background session configuration. The download will continue even if the app
+    /// is suspended or terminated, making it ideal for large file downloads on iOS.
+    ///
+    /// A session identifier must be provided via [`session_identifier()`] before calling
+    /// this method, or the download will fail with an error.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`DownloadResponse`] containing the final file path and download statistics
+    /// when the download completes successfully.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail with various errors including:
+    /// - [`Error::Internal`] if no session identifier was provided
+    /// - [`Error::InvalidUrl`] if the URL is malformed
+    /// - Network connectivity issues
+    /// - File system errors when writing to the destination
+    /// - Authentication failures
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://example.com/large-movie.mp4")
+    ///     .session_identifier("com.myapp.media-downloads")
+    ///     .to_file("./downloads/movie.mp4")
+    ///     .progress(|downloaded, total| {
+    ///         if let Some(total) = total {
+    ///             let percent = (downloaded as f64 / total as f64) * 100.0;
+    ///             println!("Background download: {:.1}%", percent);
+    ///         }
+    ///     })
+    ///     .send()
+    ///     .await?;
+    ///
+    /// println!("Background download completed: {}", response.file_path.display());
+    /// println!("Downloaded {} bytes", response.bytes_downloaded);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`session_identifier()`]: Self::session_identifier
+    /// [`DownloadResponse`]: crate::client::DownloadResponse
+    /// [`Error::Internal`]: crate::Error::Internal
+    /// [`Error::InvalidUrl`]: crate::Error::InvalidUrl
     pub async fn send(self) -> Result<DownloadResponse> {
         use objc2::runtime::ProtocolObject;
         use objc2_foundation::{NSMutableURLRequest, NSString, NSURL};

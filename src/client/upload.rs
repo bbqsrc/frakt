@@ -6,7 +6,53 @@ use objc2::runtime::ProtocolObject;
 use objc2_foundation::{NSCopying, NSURLSession};
 use std::sync::Arc;
 
-/// Builder for uploading files using NSURLSessionUploadTask
+/// Builder for uploading files using NSURLSessionUploadTask.
+///
+/// `UploadBuilder` provides a convenient interface for uploading files or data using
+/// NSURLSessionUploadTask, which provides efficient streaming uploads with progress tracking.
+/// You can upload either from a file on disk or from data in memory.
+///
+/// # Examples
+///
+/// Upload from a file:
+/// ```rust
+/// use rsurlsession::Client;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::new()?;
+/// let response = client
+///     .upload("https://httpbin.org/post")
+///     .from_file("./upload.txt")
+///     .progress(|uploaded, total| {
+///         if let Some(total) = total {
+///             let percent = (uploaded as f64 / total as f64) * 100.0;
+///             println!("Upload progress: {:.1}%", percent);
+///         }
+///     })
+///     .send()
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Upload from data:
+/// ```rust
+/// use rsurlsession::Client;
+///
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::new()?;
+/// let data = b"Hello, World!".to_vec();
+/// let response = client
+///     .upload("https://httpbin.org/post")
+///     .from_data(data)
+///     .header("Content-Type", "text/plain")
+///     .send()
+///     .await?;
+/// # Ok(())
+/// # }
+/// ```
 pub struct UploadBuilder {
     url: String,
     session: Retained<NSURLSession>,
@@ -28,21 +74,106 @@ impl UploadBuilder {
         }
     }
 
-    /// Set the file to upload
+    /// Set the file to upload from disk.
+    ///
+    /// This method configures the upload to read data from a file on disk.
+    /// The file will be streamed during upload, making this efficient for large files.
+    /// If both `from_file()` and `from_data()` are called, the last one wins.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file to upload
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .upload("https://httpbin.org/post")
+    ///     .from_file("./document.pdf")
+    ///     .header("Content-Type", "application/pdf")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn from_file<P: Into<std::path::PathBuf>>(mut self, path: P) -> Self {
         self.file_path = Some(path.into());
         self.data = None; // Clear data if file is set
         self
     }
 
-    /// Set data to upload
+    /// Set the data to upload from memory.
+    ///
+    /// This method configures the upload to send data that's already in memory.
+    /// This is convenient for small uploads or when the data is generated programmatically.
+    /// If both `from_file()` and `from_data()` are called, the last one wins.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The data to upload as bytes
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let json_data = r#"{"message": "Hello, World!"}"#;
+    /// let response = client
+    ///     .upload("https://httpbin.org/post")
+    ///     .from_data(json_data.as_bytes().to_vec())
+    ///     .header("Content-Type", "application/json")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn from_data(mut self, data: Vec<u8>) -> Self {
         self.data = Some(data);
         self.file_path = None; // Clear file if data is set
         self
     }
 
-    /// Set a progress callback
+    /// Set a progress callback to track upload progress.
+    ///
+    /// The callback will be called periodically during the upload with the number
+    /// of bytes uploaded so far and the total size (if known).
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A function that takes (uploaded_bytes, total_bytes) parameters
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .upload("https://httpbin.org/post")
+    ///     .from_file("./large-file.zip")
+    ///     .progress(|uploaded, total| {
+    ///         if let Some(total) = total {
+    ///             let percent = (uploaded as f64 / total as f64) * 100.0;
+    ///             println!("Upload progress: {:.1}%", percent);
+    ///         } else {
+    ///             println!("Uploaded: {} bytes", uploaded);
+    ///         }
+    ///     })
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn progress<F>(mut self, callback: F) -> Self
     where
         F: Fn(u64, Option<u64>) + Send + Sync + 'static,
@@ -51,20 +182,113 @@ impl UploadBuilder {
         self
     }
 
-    /// Add a header
+    /// Add a header to the upload request.
+    ///
+    /// This allows you to add custom headers to the upload request, such as
+    /// content type, authentication headers, or custom API keys.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The header name
+    /// * `value` - The header value
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .upload("https://api.example.com/files")
+    ///     .from_file("./image.jpg")
+    ///     .header("Content-Type", "image/jpeg")
+    ///     .header("X-Upload-Source", "mobile-app")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(name.into(), value.into());
         self
     }
 
-    /// Set authentication for the upload
+    /// Set authentication for the upload request.
+    ///
+    /// This adds the appropriate `Authorization` header based on the authentication
+    /// method provided.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth` - The authentication method to use
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::{Client, Auth};
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .upload("https://api.example.com/upload")
+    ///     .from_file("./document.pdf")
+    ///     .auth(Auth::bearer("your-token"))
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn auth(mut self, auth: crate::Auth) -> Self {
         self.headers
             .insert("Authorization".to_string(), auth.to_header_value());
         self
     }
 
-    /// Start the upload
+    /// Start the upload and return the response.
+    ///
+    /// This method initiates the upload using NSURLSessionUploadTask and returns
+    /// a future that resolves when the upload is complete. The upload method (file vs data)
+    /// depends on which method was called: `from_file()` or `from_data()`.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`Response`] containing the server's response to the upload.
+    ///
+    /// # Errors
+    ///
+    /// This method can fail with various errors including:
+    /// - Network connectivity issues
+    /// - Invalid URLs
+    /// - File system errors when reading the source file
+    /// - Authentication failures
+    /// - No upload source specified (neither file nor data)
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use rsurlsession::Client;
+    ///
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .upload("https://httpbin.org/post")
+    ///     .from_data(b"Hello, Server!".to_vec())
+    ///     .header("Content-Type", "text/plain")
+    ///     .send()
+    ///     .await?;
+    ///
+    /// println!("Upload status: {}", response.status());
+    /// let body = response.text().await?;
+    /// println!("Server response: {}", body);
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// [`Response`]: crate::Response
     pub async fn send(self) -> Result<crate::Response> {
         use objc2_foundation::{NSData, NSMutableURLRequest, NSString, NSURL};
 

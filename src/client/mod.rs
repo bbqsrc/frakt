@@ -14,6 +14,7 @@ pub use upload::UploadBuilder;
 
 use crate::session::SessionConfigurationBuilder;
 use crate::{Request, RequestBuilder, Result};
+use http::Method;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::NSURLSession;
@@ -114,7 +115,7 @@ impl Client {
     /// ```
     pub fn get(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
-            crate::request::Method::GET,
+            Method::GET,
             self.resolve_url(url),
             self.session.clone(),
             self.delegate.clone(),
@@ -146,7 +147,7 @@ impl Client {
     /// ```
     pub fn post(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
-            crate::request::Method::POST,
+            Method::POST,
             self.resolve_url(url),
             self.session.clone(),
             self.delegate.clone(),
@@ -160,7 +161,7 @@ impl Client {
     /// * `url` - The URL to send the PUT request to
     pub fn put(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
-            crate::request::Method::PUT,
+            Method::PUT,
             self.resolve_url(url),
             self.session.clone(),
             self.delegate.clone(),
@@ -174,7 +175,7 @@ impl Client {
     /// * `url` - The URL to send the DELETE request to
     pub fn delete(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
-            crate::request::Method::DELETE,
+            Method::DELETE,
             self.resolve_url(url),
             self.session.clone(),
             self.delegate.clone(),
@@ -188,7 +189,7 @@ impl Client {
     /// * `url` - The URL to send the PATCH request to
     pub fn patch(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
-            crate::request::Method::PATCH,
+            Method::PATCH,
             self.resolve_url(url),
             self.session.clone(),
             self.delegate.clone(),
@@ -202,7 +203,7 @@ impl Client {
     /// * `url` - The URL to send the HEAD request to
     pub fn head(&self, url: &str) -> RequestBuilder {
         RequestBuilder::new(
-            crate::request::Method::HEAD,
+            Method::HEAD,
             self.resolve_url(url),
             self.session.clone(),
             self.delegate.clone(),

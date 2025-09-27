@@ -2,46 +2,11 @@
 
 use crate::delegate::shared_context::ProgressCallback;
 use crate::{Error, Result, body::Body};
+use http::Method;
 use objc2::rc::Retained;
 use objc2_foundation::{NSMutableURLRequest, NSString, NSURL, NSURLSession};
 use std::collections::HashMap;
 
-/// HTTP request methods.
-///
-/// This enum represents all standard HTTP methods plus support for custom methods.
-/// All methods are supported by NSURLSession and can be used with any request type.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Method {
-    /// GET method - retrieve data from the server
-    GET,
-    /// POST method - send data to the server
-    POST,
-    /// PUT method - update or create a resource
-    PUT,
-    /// DELETE method - delete a resource
-    DELETE,
-    /// PATCH method - partially update a resource
-    PATCH,
-    /// HEAD method - retrieve headers only
-    HEAD,
-    /// Custom HTTP method
-    Custom(String),
-}
-
-impl Method {
-    /// Convert the HTTP method to a string representation.
-    pub fn as_str(&self) -> &str {
-        match self {
-            Method::GET => "GET",
-            Method::POST => "POST",
-            Method::PUT => "PUT",
-            Method::DELETE => "DELETE",
-            Method::PATCH => "PATCH",
-            Method::HEAD => "HEAD",
-            Method::Custom(method) => method,
-        }
-    }
-}
 
 /// An HTTP request ready to be executed.
 ///

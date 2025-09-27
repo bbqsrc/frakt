@@ -9,8 +9,8 @@ use rsurlsession::Body;
 
 #[test]
 fn test_method_as_str() {
-    // Test Method enum string conversion
-    use rsurlsession::Method;
+    // Test Method enum string conversion using http::Method
+    use http::Method;
 
     assert_eq!(Method::GET.as_str(), "GET");
     assert_eq!(Method::POST.as_str(), "POST");
@@ -18,7 +18,6 @@ fn test_method_as_str() {
     assert_eq!(Method::DELETE.as_str(), "DELETE");
     assert_eq!(Method::PATCH.as_str(), "PATCH");
     assert_eq!(Method::HEAD.as_str(), "HEAD");
-    assert_eq!(Method::Custom("CUSTOM".to_string()).as_str(), "CUSTOM");
 }
 
 #[test]
