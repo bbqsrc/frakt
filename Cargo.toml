@@ -1,0 +1,57 @@
+[package]
+name = "rsurlsession"
+version = "0.1.0"
+edition = "2024"
+description = "Ergonomic NSURLSession bindings for Rust"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bbqsrc/rsurlsession"
+rust-version = "1.89"
+
+[package.metadata.docs.rs]
+all-features = true
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-apple-ios"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["json"]
+json = ["serde", "serde_json"]
+multipart = []
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = { version = "0.6", default-features = false, features = ["alloc"] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "alloc",
+    "block2",
+    "NSError",
+    "NSObject",
+    "NSCharacterSet",
+    "NSString",
+    "NSData",
+    "NSDate",
+    "NSURL",
+    "NSURLError",
+    "NSURLAuthenticationChallenge",
+    "NSURLCredential",
+    "NSURLProtectionSpace",
+    "NSDictionary",
+    "NSArray",
+    "NSURLRequest",
+    "NSURLResponse",
+    "NSURLSession",
+    "NSOperation",
+] }
+objc2-security = { version = "0.3", default-features = false, features = [
+    "objc2",
+    "SecTrust",
+] }
+block2 = { version = "0.6", default-features = false }
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "io-util", "macros", "time"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "io"] }
+thiserror = "2.0"
+bytes = "1.0"
+arc-swap = "1.0"
+urlencoding = "2.1"
+serde = { version = "1.0", optional = true, features = ["derive"] }
+serde_json = { version = "1.0", optional = true }
