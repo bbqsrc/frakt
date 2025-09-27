@@ -21,10 +21,12 @@ pub use response::Response;
 pub use body::Body;
 #[cfg(feature = "multipart")]
 pub use body::MultipartPart;
+pub use cookies::{Cookie, CookieAcceptPolicy, CookieJar};
 
 mod auth;
 mod body;
 mod client;
+mod cookies;
 mod delegate;
 mod error;
 mod request;

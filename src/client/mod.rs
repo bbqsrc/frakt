@@ -21,6 +21,7 @@ pub struct Client {
     session: Retained<NSURLSession>,
     delegate: Retained<crate::delegate::DataTaskDelegate>,
     base_url: Option<String>,
+    cookie_jar: Option<crate::CookieJar>,
 }
 
 impl Client {
@@ -114,6 +115,11 @@ impl Client {
         UploadBuilder::new(url.to_string(), self.session.clone())
     }
 
+    /// Get the cookie jar for this client
+    pub fn cookie_jar(&self) -> Option<&crate::CookieJar> {
+        self.cookie_jar.as_ref()
+    }
+
     fn resolve_url(&self, url: &str) -> String {
         match &self.base_url {
             Some(base) => {
@@ -144,6 +150,7 @@ impl Drop for Client {
 pub struct ClientBuilder {
     config_builder: SessionConfigurationBuilder,
     base_url: Option<String>,
+    cookie_jar: Option<crate::CookieJar>,
 }
 
 impl ClientBuilder {
@@ -152,6 +159,7 @@ impl ClientBuilder {
         Self {
             config_builder: SessionConfigurationBuilder::new(),
             base_url: None,
+            cookie_jar: None,
         }
     }
 
@@ -191,10 +199,47 @@ impl ClientBuilder {
         self
     }
 
+    /// Set a custom cookie jar
+    pub fn cookie_jar(mut self, cookie_jar: crate::CookieJar) -> Self {
+        self.cookie_jar = Some(cookie_jar);
+        self
+    }
+
+    /// Set HTTP proxy
+    pub fn http_proxy(mut self, host: impl Into<String>, port: u16) -> Self {
+        self.config_builder = self.config_builder.http_proxy(host, port);
+        self
+    }
+
+    /// Set HTTPS proxy
+    pub fn https_proxy(mut self, host: impl Into<String>, port: u16) -> Self {
+        self.config_builder = self.config_builder.https_proxy(host, port);
+        self
+    }
+
+    /// Set SOCKS proxy
+    pub fn socks_proxy(mut self, host: impl Into<String>, port: u16) -> Self {
+        self.config_builder = self.config_builder.socks_proxy(host, port);
+        self
+    }
+
+    /// Set proxy authentication
+    pub fn proxy_auth(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
+        self.config_builder = self.config_builder.proxy_auth(username, password);
+        self
+    }
+
     /// Build the client
     pub fn build(self) -> Result<Client> {
         let _should_ignore_certs = self.config_builder.should_ignore_certificate_errors();
         let config = self.config_builder.build()?;
+
+        // Set cookie storage if a custom cookie jar is provided
+        if let Some(ref cookie_jar) = self.cookie_jar {
+            unsafe {
+                config.setHTTPCookieStorage(Some(cookie_jar.storage()));
+            }
+        }
 
         // Create delegate and session with delegate
         let delegate = crate::delegate::DataTaskDelegate::new();
@@ -210,6 +255,7 @@ impl ClientBuilder {
             session,
             delegate,
             base_url: self.base_url,
+            cookie_jar: self.cookie_jar,
         })
     }
 }

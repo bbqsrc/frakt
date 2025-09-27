@@ -26,6 +26,27 @@ pub enum SessionType {
     Background(String),
 }
 
+/// Proxy configuration
+#[derive(Debug, Clone)]
+pub struct ProxyConfig {
+    /// HTTP proxy host
+    pub http_host: Option<String>,
+    /// HTTP proxy port
+    pub http_port: Option<u16>,
+    /// HTTPS proxy host
+    pub https_host: Option<String>,
+    /// HTTPS proxy port
+    pub https_port: Option<u16>,
+    /// SOCKS proxy host
+    pub socks_host: Option<String>,
+    /// SOCKS proxy port
+    pub socks_port: Option<u16>,
+    /// Proxy username for authentication
+    pub username: Option<String>,
+    /// Proxy password for authentication
+    pub password: Option<String>,
+}
+
 /// Session configuration builder
 #[derive(Debug)]
 pub struct SessionConfigurationBuilder {
@@ -33,6 +54,7 @@ pub struct SessionConfigurationBuilder {
     caching: CachingBehavior,
     use_cookies: bool,
     use_default_proxy: bool,
+    proxy_config: Option<ProxyConfig>,
     headers: HashMap<String, String>,
     ignore_certificate_errors: bool,
     session_type: SessionType,
@@ -45,6 +67,7 @@ impl Default for SessionConfigurationBuilder {
             caching: CachingBehavior::Default,
             use_cookies: true,
             use_default_proxy: true,
+            proxy_config: None,
             headers: HashMap::new(),
             ignore_certificate_errors: false,
             session_type: SessionType::Default,
@@ -108,14 +131,86 @@ impl SessionConfigurationBuilder {
         self
     }
 
+    /// Set HTTP proxy
+    pub fn http_proxy(mut self, host: impl Into<String>, port: u16) -> Self {
+        let mut config = self.proxy_config.unwrap_or(ProxyConfig {
+            http_host: None,
+            http_port: None,
+            https_host: None,
+            https_port: None,
+            socks_host: None,
+            socks_port: None,
+            username: None,
+            password: None,
+        });
+        config.http_host = Some(host.into());
+        config.http_port = Some(port);
+        self.proxy_config = Some(config);
+        self
+    }
+
+    /// Set HTTPS proxy
+    pub fn https_proxy(mut self, host: impl Into<String>, port: u16) -> Self {
+        let mut config = self.proxy_config.unwrap_or(ProxyConfig {
+            http_host: None,
+            http_port: None,
+            https_host: None,
+            https_port: None,
+            socks_host: None,
+            socks_port: None,
+            username: None,
+            password: None,
+        });
+        config.https_host = Some(host.into());
+        config.https_port = Some(port);
+        self.proxy_config = Some(config);
+        self
+    }
+
+    /// Set SOCKS proxy
+    pub fn socks_proxy(mut self, host: impl Into<String>, port: u16) -> Self {
+        let mut config = self.proxy_config.unwrap_or(ProxyConfig {
+            http_host: None,
+            http_port: None,
+            https_host: None,
+            https_port: None,
+            socks_host: None,
+            socks_port: None,
+            username: None,
+            password: None,
+        });
+        config.socks_host = Some(host.into());
+        config.socks_port = Some(port);
+        self.proxy_config = Some(config);
+        self
+    }
+
+    /// Set proxy authentication
+    pub fn proxy_auth(mut self, username: impl Into<String>, password: impl Into<String>) -> Self {
+        let mut config = self.proxy_config.unwrap_or(ProxyConfig {
+            http_host: None,
+            http_port: None,
+            https_host: None,
+            https_port: None,
+            socks_host: None,
+            socks_port: None,
+            username: None,
+            password: None,
+        });
+        config.username = Some(username.into());
+        config.password = Some(password.into());
+        self.proxy_config = Some(config);
+        self
+    }
+
     /// Build the NSURLSessionConfiguration
-    pub(crate) fn build(self) -> Result<Retained<NSURLSessionConfiguration>> {
+    pub(crate) fn build(mut self) -> Result<Retained<NSURLSessionConfiguration>> {
         unsafe {
-            let config = match self.session_type {
+            let config = match &self.session_type {
                 SessionType::Default => NSURLSessionConfiguration::defaultSessionConfiguration(),
                 SessionType::Background(identifier) => {
                     NSURLSessionConfiguration::backgroundSessionConfigurationWithIdentifier(
-                        &NSString::from_str(&identifier),
+                        &NSString::from_str(identifier),
                     )
                 }
             };
@@ -126,7 +221,10 @@ impl SessionConfigurationBuilder {
             }
 
             // Set proxy settings
-            if !self.use_default_proxy {
+            if let Some(proxy_config) = &self.proxy_config {
+                let proxy_dict = self.build_proxy_dictionary(proxy_config)?;
+                config.setConnectionProxyDictionary(Some(&*proxy_dict));
+            } else if !self.use_default_proxy {
                 config.setConnectionProxyDictionary(Some(&*NSDictionary::new()));
             }
 
@@ -177,5 +275,52 @@ impl SessionConfigurationBuilder {
     /// Get the session type
     pub(crate) fn session_type(&self) -> &SessionType {
         &self.session_type
+    }
+
+    /// Build proxy dictionary for NSURLSessionConfiguration
+    fn build_proxy_dictionary(&self, proxy_config: &ProxyConfig) -> Result<Retained<NSDictionary>> {
+        let mut proxy_dict = HashMap::new();
+
+        // HTTP proxy
+        if let (Some(host), Some(port)) = (&proxy_config.http_host, &proxy_config.http_port) {
+            proxy_dict.insert("HTTPEnable", "1".to_string());
+            proxy_dict.insert("HTTPProxy", host.clone());
+            proxy_dict.insert("HTTPPort", port.to_string());
+        }
+
+        // HTTPS proxy
+        if let (Some(host), Some(port)) = (&proxy_config.https_host, &proxy_config.https_port) {
+            proxy_dict.insert("HTTPSEnable", "1".to_string());
+            proxy_dict.insert("HTTPSProxy", host.clone());
+            proxy_dict.insert("HTTPSPort", port.to_string());
+        }
+
+        // SOCKS proxy
+        if let (Some(host), Some(port)) = (&proxy_config.socks_host, &proxy_config.socks_port) {
+            proxy_dict.insert("SOCKSEnable", "1".to_string());
+            proxy_dict.insert("SOCKSProxy", host.clone());
+            proxy_dict.insert("SOCKSPort", port.to_string());
+        }
+
+        // Proxy authentication
+        if let (Some(username), Some(password)) = (&proxy_config.username, &proxy_config.password) {
+            proxy_dict.insert("HTTPProxyUsername", username.clone());
+            proxy_dict.insert("HTTPProxyPassword", password.clone());
+            proxy_dict.insert("HTTPSProxyUsername", username.clone());
+            proxy_dict.insert("HTTPSProxyPassword", password.clone());
+            proxy_dict.insert("SOCKSUsername", username.clone());
+            proxy_dict.insert("SOCKSPassword", password.clone());
+        }
+
+        // Convert HashMap to NSDictionary
+        let keys: Vec<_> = proxy_dict.keys().map(|k| NSString::from_str(k)).collect();
+        let values: Vec<_> = proxy_dict.values().map(|v| NSString::from_str(v)).collect();
+
+        let dict = NSDictionary::from_retained_objects(
+            &keys.iter().map(|s| &**s).collect::<Vec<_>>(),
+            &values,
+        );
+
+        Ok(unsafe { Retained::cast_unchecked(dict) })
     }
 }
