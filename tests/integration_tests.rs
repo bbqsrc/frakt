@@ -28,7 +28,7 @@ async fn test_post_with_json() -> Result<()> {
 
     let response = client
         .post("https://httpbin.org/post")
-        .header("Content-Type", "application/json")
+        .header("Content-Type", "application/json")?
         .body(json_data)
         .send()
         .await?;
@@ -46,12 +46,12 @@ async fn test_post_with_json() -> Result<()> {
 async fn test_headers() -> Result<()> {
     let client = Client::builder()
         .user_agent("rsurlsession-integration-test/1.0")
-        .header("X-Custom-Header", "test-value")
+        .header("X-Custom-Header", "test-value")?
         .build()?;
 
     let response = client
         .get("https://httpbin.org/headers")
-        .header("X-Request-Header", "request-value")
+        .header("X-Request-Header", "request-value")?
         .send()
         .await?;
 
@@ -199,6 +199,38 @@ async fn test_error_status_codes() -> Result<()> {
     let response = client.get("https://httpbin.org/status/404").send().await?;
 
     assert_eq!(response.status(), 404);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_response_headers() -> Result<()> {
+    let client = Client::builder()
+        .user_agent("rsurlsession-integration-test/1.0")
+        .build()?;
+
+    let response = client.get("https://httpbin.org/json").send().await?;
+
+    assert_eq!(response.status(), 200);
+
+    // Verify we can actually extract headers from the response
+    let headers = response.headers();
+
+    // These headers should always be present in httpbin.org responses
+    assert!(headers.contains_key("content-type") || headers.contains_key("Content-Type"));
+
+    // Get the content-type header and verify it's JSON
+    let content_type = headers
+        .get("content-type")
+        .or_else(|| headers.get("Content-Type"))
+        .expect("Should have content-type header");
+
+    let content_type_str = content_type.to_str().unwrap();
+    assert!(
+        content_type_str.contains("application/json"),
+        "Expected JSON content type, got: {}",
+        content_type_str
+    );
 
     Ok(())
 }

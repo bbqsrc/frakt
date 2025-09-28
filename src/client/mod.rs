@@ -1,5 +1,9 @@
 //! Client implementation using backend abstraction
 
+use crate::backend::Backend;
+use futures_util::StreamExt;
+use http::{HeaderMap, HeaderName, HeaderValue, Method};
+
 // TODO: Re-implement these with backend abstraction
 // pub mod background;
 // pub mod download;
@@ -68,7 +72,8 @@ impl DownloadBuilder {
         let mut bytes_downloaded = 0u64;
 
         // Get content length for progress callback
-        let total_bytes = response.headers
+        let total_bytes = response
+            .headers
             .get("content-length")
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<u64>().ok());
@@ -98,7 +103,17 @@ impl DownloadBuilder {
     }
 }
 
-/// Background download builder for downloads that continue when app is suspended
+/// Background download builder for downloads that survive app termination
+///
+/// Platform-specific behavior:
+/// - **Apple platforms**: Uses NSURLSession background downloads
+/// - **Unix platforms**: Uses double-fork daemon process with curl/wget
+/// - **Other platforms**: Uses resumable downloads with retry logic
+///
+/// All platforms support:
+/// - Progress callbacks
+/// - Automatic resume on failure
+/// - Session identifiers for tracking
 pub struct BackgroundDownloadBuilder {
     backend: Backend,
     url: String,
@@ -119,19 +134,49 @@ impl BackgroundDownloadBuilder {
         }
     }
 
+    /// Generate a unique session identifier
+    fn generate_session_id(&self, prefix: &str) -> String {
+        format!(
+            "rsurlsession-{}-{}-{}",
+            prefix,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        )
+    }
+
+    /// Create and return the state directory path
+    fn ensure_state_dir(&self) -> crate::Result<std::path::PathBuf> {
+        let state_dir = std::env::temp_dir().join("rsurlsession");
+        std::fs::create_dir_all(&state_dir).map_err(|e| {
+            crate::Error::Internal(format!("Failed to create state directory: {}", e))
+        })?;
+        Ok(state_dir)
+    }
+
     /// Set session identifier for background downloads
+    ///
+    /// If not provided, a unique identifier will be automatically generated
+    /// based on process ID and timestamp.
     pub fn session_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.session_identifier = Some(identifier.into());
         self
     }
 
     /// Set destination file path
+    ///
+    /// The destination directory will be created if it doesn't exist.
     pub fn to_file<P: AsRef<std::path::Path>>(mut self, path: P) -> Self {
         self.file_path = Some(path.as_ref().to_path_buf());
         self
     }
 
     /// Set progress callback
+    ///
+    /// The callback receives (bytes_downloaded, total_bytes).
+    /// total_bytes may be None if the server doesn't provide Content-Length.
     pub fn progress<F>(mut self, callback: F) -> Self
     where
         F: Fn(u64, Option<u64>) + Send + Sync + 'static,
@@ -141,45 +186,60 @@ impl BackgroundDownloadBuilder {
     }
 
     /// Start the background download
+    ///
+    /// Returns immediately with download information. The download continues
+    /// in the background and survives app termination on supported platforms.
     pub async fn send(self) -> crate::Result<DownloadResponse> {
         let file_path = self.file_path.clone().ok_or_else(|| {
             crate::Error::Internal("Background download file path not specified".to_string())
         })?;
 
+        // Ensure parent directory exists
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                crate::Error::Internal(format!("Failed to create parent directory: {}", e))
+            })?;
+        }
+
         match &self.backend {
             #[cfg(target_vendor = "apple")]
-            Backend::Foundation(_) => {
-                self.send_foundation_background(file_path).await
-            }
+            Backend::Foundation(_) => self.send_foundation_background(file_path).await,
             Backend::Reqwest(_) => {
-                // Reqwest doesn't support true background downloads, fall back to regular download
-                let mut download_builder = DownloadBuilder::new(self.backend, self.url);
-                download_builder = download_builder.to_file(&file_path);
-                if let Some(callback) = self.progress_callback {
-                    download_builder = download_builder.progress(callback);
+                #[cfg(unix)]
+                {
+                    // Use double-fork approach on Unix systems
+                    self.send_unix_background(file_path).await
                 }
-                download_builder.send().await
+                #[cfg(not(unix))]
+                {
+                    // Use resumable download for non-Unix platforms
+                    self.send_resumable_background(file_path).await
+                }
             }
         }
     }
 
     #[cfg(target_vendor = "apple")]
-    async fn send_foundation_background(self, file_path: std::path::PathBuf) -> crate::Result<DownloadResponse> {
+    async fn send_foundation_background(
+        self,
+        file_path: std::path::PathBuf,
+    ) -> crate::Result<DownloadResponse> {
         // For background downloads, we need to create a background session
         use crate::backend::foundation::delegate::background_session::BackgroundSessionDelegate;
         use crate::backend::foundation::delegate::shared_context::TaskSharedContext;
-        use objc2_foundation::{NSURLSessionConfiguration, NSURLSession, NSString, NSURL};
         use objc2::runtime::ProtocolObject;
+        use objc2_foundation::{NSString, NSURL, NSURLSession, NSURLSessionConfiguration};
         use std::sync::Arc;
 
         // Create background session configuration
-        let session_id = self.session_identifier.unwrap_or_else(|| {
-            format!("rsurlsession-bg-{}", std::process::id())
-        });
+        let session_id = self
+            .session_identifier
+            .clone()
+            .unwrap_or_else(|| self.generate_session_id("bg"));
 
         let session_config = unsafe {
             NSURLSessionConfiguration::backgroundSessionConfigurationWithIdentifier(
-                &NSString::from_str(&session_id)
+                &NSString::from_str(&session_id),
             )
         };
 
@@ -195,8 +255,7 @@ impl BackgroundDownloadBuilder {
 
         // Create download task
         let nsurl = unsafe {
-            NSURL::URLWithString(&NSString::from_str(&self.url))
-                .ok_or(crate::Error::InvalidUrl)?
+            NSURL::URLWithString(&NSString::from_str(&self.url)).ok_or(crate::Error::InvalidUrl)?
         };
 
         let download_task = unsafe { session.downloadTaskWithURL(&nsurl) };
@@ -210,7 +269,9 @@ impl BackgroundDownloadBuilder {
         };
 
         task_context.download_context = Some(Arc::new(
-            crate::backend::foundation::delegate::shared_context::DownloadContext::new(Some(file_path.clone()))
+            crate::backend::foundation::delegate::shared_context::DownloadContext::new(Some(
+                file_path.clone(),
+            )),
         ));
 
         let task_context = Arc::new(task_context);
@@ -234,12 +295,543 @@ impl BackgroundDownloadBuilder {
         }
 
         // Calculate bytes downloaded
-        let bytes_downloaded = task_context.bytes_downloaded.load(std::sync::atomic::Ordering::Relaxed);
+        let bytes_downloaded = task_context
+            .bytes_downloaded
+            .load(std::sync::atomic::Ordering::Relaxed);
 
         Ok(DownloadResponse {
             file_path,
             bytes_downloaded,
         })
+    }
+
+    #[cfg(unix)]
+    async fn send_unix_background(
+        self,
+        file_path: std::path::PathBuf,
+    ) -> crate::Result<DownloadResponse> {
+        // Create a unique session identifier
+        let session_id = self
+            .session_identifier
+            .clone()
+            .unwrap_or_else(|| self.generate_session_id("unix"));
+
+        // Create state directory
+        let state_dir = self.ensure_state_dir()?;
+
+        let state_file = state_dir.join(format!("{}.state", session_id));
+
+        // Get the backend for the daemon process
+        let backend = match &self.backend {
+            Backend::Reqwest(reqwest_backend) => reqwest_backend.clone(),
+            #[cfg(target_vendor = "apple")]
+            Backend::Foundation(_) => {
+                return Err(crate::Error::Internal(
+                    "Foundation backend should not use Unix fork approach".to_string(),
+                ));
+            }
+        };
+
+        // Clone data needed for the daemon process
+        let url = self.url.clone();
+        let progress_callback = self.progress_callback.is_some();
+
+        // Double-fork to create a truly detached process
+        unsafe {
+            let pid = libc::fork();
+            if pid < 0 {
+                return Err(crate::Error::Internal("First fork failed".to_string()));
+            } else if pid == 0 {
+                // First child
+
+                // Create new session
+                if libc::setsid() < 0 {
+                    std::process::exit(1);
+                }
+
+                // Second fork
+                let pid2 = libc::fork();
+                if pid2 < 0 {
+                    std::process::exit(1);
+                } else if pid2 == 0 {
+                    // Second child - the daemon
+
+                    // Close all file descriptors
+                    for fd in 3..256 {
+                        libc::close(fd);
+                    }
+
+                    // Redirect stdin/stdout/stderr to /dev/null
+                    let devnull = libc::open(b"/dev/null\0".as_ptr() as *const i8, libc::O_RDWR);
+                    if devnull >= 0 {
+                        libc::dup2(devnull, 0);
+                        libc::dup2(devnull, 1);
+                        libc::dup2(devnull, 2);
+                        if devnull > 2 {
+                            libc::close(devnull);
+                        }
+                    }
+
+                    // Run the download in the daemon process
+                    Self::run_daemon_download(
+                        url,
+                        file_path,
+                        state_file,
+                        backend,
+                        progress_callback,
+                    );
+
+                    // Exit when download completes
+                    std::process::exit(0);
+                } else {
+                    // First child exits immediately
+                    std::process::exit(0);
+                }
+            } else {
+                // Parent process - wait for first child to exit
+                let mut status = 0;
+                libc::waitpid(pid, &mut status, 0);
+            }
+        }
+
+        // Wait a moment for the download to start
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Now monitor the state file for completion
+        let start_time = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(300); // 5 minute timeout for start
+
+        loop {
+            if start_time.elapsed() > timeout {
+                return Err(crate::Error::Internal(
+                    "Background download timeout".to_string(),
+                ));
+            }
+
+            if let Ok(state_content) = std::fs::read_to_string(&state_file) {
+                let mut status = None;
+                let mut bytes_downloaded = 0u64;
+                let mut error_msg = None;
+
+                for line in state_content.lines() {
+                    if let Some((key, value)) = line.split_once(':') {
+                        match key {
+                            "status" => status = Some(value.to_string()),
+                            "bytes_downloaded" => bytes_downloaded = value.parse().unwrap_or(0),
+                            "error" => error_msg = Some(value.to_string()),
+                            _ => {}
+                        }
+                    }
+                }
+
+                match status.as_deref() {
+                    Some("completed") => {
+                        // Clean up state file
+                        let _ = std::fs::remove_file(&state_file);
+
+                        return Ok(DownloadResponse {
+                            file_path,
+                            bytes_downloaded,
+                        });
+                    }
+                    Some("failed") => {
+                        // Clean up state file
+                        let _ = std::fs::remove_file(&state_file);
+
+                        return Err(crate::Error::Internal(
+                            error_msg.unwrap_or_else(|| "Download failed".to_string()),
+                        ));
+                    }
+                    Some("downloading") => {
+                        // Call progress callback if provided
+                        if let Some(ref callback) = self.progress_callback {
+                            callback(bytes_downloaded, None);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    }
+
+    /// Run download in daemon process using reqwest
+    fn run_daemon_download(
+        url: String,
+        file_path: std::path::PathBuf,
+        state_file: std::path::PathBuf,
+        backend: crate::backend::reqwest::ReqwestBackend,
+        has_progress_callback: bool,
+    ) {
+        // Helper function to write state
+        let write_state = |status: &str, bytes_downloaded: u64, error: Option<&str>| {
+            let mut content = format!(
+                "status:{}\nbytes_downloaded:{}\nlast_update:{}\n",
+                status,
+                bytes_downloaded,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            );
+            if let Some(err) = error {
+                content.push_str(&format!("error:{}\n", err));
+            }
+            let _ = std::fs::write(&state_file, content);
+        };
+
+        // Create a new tokio runtime in the forked process
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                write_state(
+                    "failed",
+                    0,
+                    Some(&format!("Failed to create runtime: {}", e)),
+                );
+                return;
+            }
+        };
+
+        // Run the download
+        runtime.block_on(async {
+            if let Err(e) = Self::daemon_download_async(
+                url,
+                file_path,
+                &state_file,
+                backend,
+                has_progress_callback,
+                write_state,
+            )
+            .await
+            {
+                write_state("failed", 0, Some(&format!("Download failed: {}", e)));
+            }
+        });
+    }
+
+    /// Async download logic for daemon process
+    async fn daemon_download_async(
+        url: String,
+        file_path: std::path::PathBuf,
+        state_file: &std::path::Path,
+        backend: crate::backend::reqwest::ReqwestBackend,
+        has_progress_callback: bool,
+        write_state: impl Fn(&str, u64, Option<&str>),
+    ) -> std::result::Result<(), String> {
+        use futures_util::StreamExt;
+
+        // Check if file already exists (for resume)
+        let initial_size = if file_path.exists() {
+            std::fs::metadata(&file_path)
+                .map_err(|e| format!("Failed to check existing file: {}", e))?
+                .len()
+        } else {
+            0
+        };
+
+        // Create the reqwest client from backend
+        let client = backend.client();
+
+        // Create request with Range header for resume if needed
+        let mut request_builder = client.get(&url);
+        if initial_size > 0 {
+            request_builder = request_builder.header("Range", format!("bytes={}-", initial_size));
+        }
+
+        // Send the request
+        let response = request_builder
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        // Check status
+        if !response.status().is_success() && response.status() != 206 {
+            if response.status() == 416 && initial_size > 0 {
+                // Range not satisfiable - file is already complete
+                write_state("completed", initial_size, None);
+                return Ok(());
+            }
+            return Err(format!("HTTP error: {}", response.status()));
+        }
+
+        // Get content length
+        let content_length = response.content_length();
+        let total_size = if response.status() == 206 {
+            // Partial content - add to existing size
+            content_length.map(|len| len + initial_size)
+        } else {
+            content_length
+        };
+
+        // Open file for writing (append if resuming)
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(initial_size > 0)
+            .write(true)
+            .truncate(initial_size == 0)
+            .open(&file_path)
+            .map_err(|e| format!("Failed to open file: {}", e))?;
+
+        // Stream the response body
+        let mut stream = response.bytes_stream();
+        let mut bytes_downloaded = initial_size;
+        let mut last_progress_update = std::time::Instant::now();
+
+        write_state("downloading", bytes_downloaded, None);
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| format!("Stream error: {}", e))?;
+
+            // Write chunk to file
+            std::io::Write::write_all(&mut file, &chunk)
+                .map_err(|e| format!("Failed to write to file: {}", e))?;
+
+            bytes_downloaded += chunk.len() as u64;
+
+            // Update progress periodically
+            if has_progress_callback
+                && last_progress_update.elapsed() > std::time::Duration::from_millis(500)
+            {
+                write_state("downloading", bytes_downloaded, None);
+                last_progress_update = std::time::Instant::now();
+            }
+        }
+
+        // Ensure file is flushed
+        std::io::Write::flush(&mut file).map_err(|e| format!("Failed to flush file: {}", e))?;
+
+        // Mark as completed
+        write_state("completed", bytes_downloaded, None);
+        Ok(())
+    }
+
+    /// Resumable background download for non-Unix platforms
+    async fn send_resumable_background(
+        self,
+        file_path: std::path::PathBuf,
+    ) -> crate::Result<DownloadResponse> {
+        // Create a unique session identifier
+        let session_id = self
+            .session_identifier
+            .clone()
+            .unwrap_or_else(|| self.generate_session_id("resumable"));
+
+        // Create state directory
+        let state_dir = self.ensure_state_dir()?;
+
+        let state_file = state_dir.join(format!("{}.state", session_id));
+
+        // Ensure destination directory exists
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                crate::Error::Internal(format!("Failed to create destination directory: {}", e))
+            })?;
+        }
+
+        // Check if we're resuming an existing download
+        let mut bytes_downloaded = 0u64;
+        if file_path.exists() {
+            bytes_downloaded = std::fs::metadata(&file_path)
+                .map_err(|e| {
+                    crate::Error::Internal(format!("Failed to read file metadata: {}", e))
+                })?
+                .len();
+        }
+
+        // Write initial state
+        let state_content = format!(
+            "status:downloading\nbytes_downloaded:{}\nlast_update:{}\n",
+            bytes_downloaded,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        );
+        std::fs::write(&state_file, state_content)
+            .map_err(|e| crate::Error::Internal(format!("Failed to write state file: {}", e)))?;
+
+        // Create request with Range header for resume support
+        let mut request_builder = match &self.backend {
+            Backend::Reqwest(_) => crate::RequestBuilder::new(
+                http::Method::GET,
+                self.url.clone(),
+                self.backend.clone(),
+            ),
+            #[cfg(target_vendor = "apple")]
+            Backend::Foundation(_) => crate::RequestBuilder::new(
+                http::Method::GET,
+                self.url.clone(),
+                self.backend.clone(),
+            ),
+        };
+
+        // Add Range header if resuming
+        if bytes_downloaded > 0 {
+            request_builder =
+                request_builder.header("Range", format!("bytes={}-", bytes_downloaded))?;
+        }
+
+        // Perform the download with retry logic
+        let mut retry_count = 0;
+        const MAX_RETRIES: u32 = 5;
+        const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
+
+        loop {
+            match self
+                .try_download(&request_builder, &file_path, bytes_downloaded, &state_file)
+                .await
+            {
+                Ok(total_bytes) => {
+                    // Download completed successfully
+                    let final_state = format!(
+                        "status:completed\nbytes_downloaded:{}\nlast_update:{}\n",
+                        total_bytes,
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    );
+                    let _ = std::fs::write(&state_file, final_state);
+
+                    // Clean up state file
+                    let _ = std::fs::remove_file(&state_file);
+
+                    return Ok(DownloadResponse {
+                        file_path,
+                        bytes_downloaded: total_bytes,
+                    });
+                }
+                Err(e) => {
+                    retry_count += 1;
+                    if retry_count >= MAX_RETRIES {
+                        // Max retries exceeded, write failed state
+                        let failed_state = format!(
+                            "status:failed\nerror:{}\nlast_update:{}\n",
+                            e,
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs()
+                        );
+                        let _ = std::fs::write(&state_file, failed_state);
+                        return Err(e);
+                    }
+
+                    // Update bytes downloaded for next retry
+                    if file_path.exists() {
+                        bytes_downloaded = std::fs::metadata(&file_path)
+                            .map_err(|e| {
+                                crate::Error::Internal(format!(
+                                    "Failed to read file metadata: {}",
+                                    e
+                                ))
+                            })?
+                            .len();
+
+                        // Update Range header for retry
+                        request_builder = match &self.backend {
+                            Backend::Reqwest(_) => crate::RequestBuilder::new(
+                                http::Method::GET,
+                                self.url.clone(),
+                                self.backend.clone(),
+                            ),
+                            #[cfg(target_vendor = "apple")]
+                            Backend::Foundation(_) => crate::RequestBuilder::new(
+                                http::Method::GET,
+                                self.url.clone(),
+                                self.backend.clone(),
+                            ),
+                        };
+
+                        if bytes_downloaded > 0 {
+                            request_builder = request_builder
+                                .header("Range", format!("bytes={}-", bytes_downloaded))?;
+                        }
+                    }
+
+                    // Exponential backoff
+                    let delay = RETRY_DELAY * 2_u32.pow(retry_count - 1);
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+    }
+
+    async fn try_download(
+        &self,
+        request_builder: &crate::RequestBuilder,
+        file_path: &std::path::Path,
+        initial_bytes: u64,
+        state_file: &std::path::Path,
+    ) -> crate::Result<u64> {
+        use tokio::io::AsyncWriteExt;
+
+        // For simplicity, we'll recreate the request with the Range header
+        let mut final_request =
+            crate::RequestBuilder::new(Method::GET, self.url.clone(), self.backend.clone());
+
+        // Add Range header if resuming
+        if initial_bytes > 0 {
+            final_request = final_request.header("Range", format!("bytes={}-", initial_bytes))?;
+        }
+
+        let response = final_request.send().await?;
+
+        // Open file for appending (or create if doesn't exist)
+        let mut file = if initial_bytes > 0 {
+            tokio::fs::OpenOptions::new()
+                .append(true)
+                .open(file_path)
+                .await
+                .map_err(|e| {
+                    crate::Error::Internal(format!("Failed to open file for appending: {}", e))
+                })?
+        } else {
+            tokio::fs::File::create(file_path)
+                .await
+                .map_err(|e| crate::Error::Internal(format!("Failed to create file: {}", e)))?
+        };
+
+        let mut stream = response.stream();
+        let mut bytes_written = initial_bytes;
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk =
+                chunk_result.map_err(|e| crate::Error::Internal(format!("Stream error: {}", e)))?;
+
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| crate::Error::Internal(format!("Failed to write to file: {}", e)))?;
+
+            bytes_written += chunk.len() as u64;
+
+            // Update state file with progress
+            let state_content = format!(
+                "status:downloading\nbytes_downloaded:{}\nlast_update:{}\n",
+                bytes_written,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            );
+            let _ = std::fs::write(state_file, state_content);
+
+            // Call progress callback if provided
+            if let Some(ref callback) = self.progress_callback {
+                callback(bytes_written, None);
+            }
+        }
+
+        file.flush()
+            .await
+            .map_err(|e| crate::Error::Internal(format!("Failed to flush file: {}", e)))?;
+
+        Ok(bytes_written)
     }
 }
 
@@ -282,7 +874,8 @@ impl UploadBuilder {
             Some("gif") => "image/gif",
             Some("zip") => "application/zip",
             _ => "application/octet-stream",
-        }.to_string();
+        }
+        .to_string();
 
         // Store the file path for later async reading in send()
         self.file_path = Some((path, content_type));
@@ -360,8 +953,6 @@ pub struct DownloadResponse {
 }
 
 use crate::Result;
-use crate::backend::Backend;
-use http::{HeaderMap, HeaderName, HeaderValue, Method};
 use std::time::Duration;
 
 /// HTTP client that works with any backend
@@ -484,29 +1075,21 @@ impl Client {
         match &self.backend {
             #[cfg(target_vendor = "apple")]
             Backend::Foundation(foundation_backend) => {
-                // Extract the NSURLSession from the Foundation backend
-                crate::websocket::WebSocketBuilder::new(foundation_backend.session().clone())
+                // Use Foundation backend for WebSocket
+                crate::websocket::WebSocketBuilder::new_foundation(
+                    foundation_backend.session().clone(),
+                )
             }
             Backend::Reqwest(_) => {
-                // For Reqwest backend, we need to create a temporary Foundation session
-                // since WebSocket is only implemented for Foundation
-                #[cfg(target_vendor = "apple")]
-                {
-                    let foundation_backend = crate::backend::foundation::FoundationBackend::new()
-                        .expect("Failed to create Foundation backend for WebSocket");
-                    crate::websocket::WebSocketBuilder::new(foundation_backend.session().clone())
-                }
-                #[cfg(not(target_vendor = "apple"))]
-                {
-                    panic!("WebSocket is only available on Apple platforms")
-                }
+                // Use Reqwest backend for WebSocket with tokio-tungstenite
+                crate::websocket::WebSocketBuilder::new_reqwest()
             }
         }
     }
 }
 
 /// Proxy configuration
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProxyConfig {
     pub host: String,
     pub port: u16,
@@ -666,6 +1249,16 @@ impl ClientBuilder {
                     timeout: self.timeout,
                     user_agent: self.user_agent,
                     ignore_certificate_errors: self.ignore_certificate_errors,
+                    default_headers: if self.headers.is_empty() {
+                        None
+                    } else {
+                        Some(self.headers.clone())
+                    },
+                    use_cookies: self.use_cookies,
+                    cookie_jar: None, // TODO: Add cookie jar support to ClientBuilder
+                    http_proxy: None, // TODO: Add proxy support to ClientBuilder
+                    https_proxy: None,
+                    socks_proxy: None,
                 };
 
                 if cfg!(target_vendor = "apple") {

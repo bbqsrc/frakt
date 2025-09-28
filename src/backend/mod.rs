@@ -20,6 +20,18 @@ pub struct BackendConfig {
     pub user_agent: Option<String>,
     /// Whether to ignore certificate errors
     pub ignore_certificate_errors: Option<bool>,
+    /// Default headers to add to all requests
+    pub default_headers: Option<http::HeaderMap>,
+    /// Enable or disable cookies
+    pub use_cookies: Option<bool>,
+    /// Custom cookie jar
+    pub cookie_jar: Option<crate::CookieJar>,
+    /// HTTP proxy configuration
+    pub http_proxy: Option<crate::client::ProxyConfig>,
+    /// HTTPS proxy configuration
+    pub https_proxy: Option<crate::client::ProxyConfig>,
+    /// SOCKS proxy configuration
+    pub socks_proxy: Option<crate::client::ProxyConfig>,
 }
 
 /// HTTP client backend implementations

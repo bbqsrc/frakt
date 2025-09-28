@@ -99,6 +99,13 @@ pub enum Error {
     #[error("Request was cancelled")]
     Cancelled,
 
+    /// WebSocket connection was closed.
+    ///
+    /// This error occurs when attempting to use a WebSocket connection
+    /// that has been closed, either normally or due to an error.
+    #[error("WebSocket connection was closed")]
+    WebSocketClosed,
+
     /// UTF-8 conversion error.
     ///
     /// This error occurs when trying to convert response bytes to a UTF-8 string

@@ -120,7 +120,7 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let client = Client::new()?;
 //!
-//!     let websocket = client
+//!     let mut websocket = client
 //!         .websocket()
 //!         .connect("wss://echo.websocket.org")
 //!         .await?;

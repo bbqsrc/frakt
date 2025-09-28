@@ -7,9 +7,7 @@ use crate::backend::types::{BackendRequest, BackendResponse};
 use crate::{Error, Result};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2_foundation::{
-    NSHTTPURLResponse, NSMutableURLRequest, NSString, NSURL, NSURLSession,
-};
+use objc2_foundation::{NSHTTPURLResponse, NSMutableURLRequest, NSString, NSURL, NSURLSession};
 use std::str::FromStr;
 use tokio::sync::mpsc;
 
@@ -204,13 +202,17 @@ impl FoundationBackend {
                 // For now, at least we extract the basic headers manually:
 
                 // Add common headers that we can extract directly
-                if let Some(content_type) = http_response.valueForHTTPHeaderField(&NSString::from_str("Content-Type")) {
+                if let Some(content_type) =
+                    http_response.valueForHTTPHeaderField(&NSString::from_str("Content-Type"))
+                {
                     if let Ok(ct_str) = content_type.to_string().parse::<http::HeaderValue>() {
                         headers.insert(http::header::CONTENT_TYPE, ct_str);
                     }
                 }
 
-                if let Some(content_length) = http_response.valueForHTTPHeaderField(&NSString::from_str("Content-Length")) {
+                if let Some(content_length) =
+                    http_response.valueForHTTPHeaderField(&NSString::from_str("Content-Length"))
+                {
                     if let Ok(cl_str) = content_length.to_string().parse::<http::HeaderValue>() {
                         headers.insert(http::header::CONTENT_LENGTH, cl_str);
                     }

@@ -12,7 +12,7 @@ async fn main() -> Result<()> {
         .build()?;
 
     // Create WebSocket connection to echo server
-    let websocket = client
+    let mut websocket = client
         .websocket()
         .maximum_message_size(1024 * 1024) // 1MB max message size
         .connect("wss://echo.websocket.org")

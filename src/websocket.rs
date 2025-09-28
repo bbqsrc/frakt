@@ -1,13 +1,23 @@
-//! WebSocket support using NSURLSessionWebSocketTask
+//! WebSocket support with backend abstraction
 
 use crate::{Error, Result};
-use block2::RcBlock;
-use objc2::{AnyThread, rc::Retained};
-use objc2_foundation::{
-    NSData, NSError, NSString, NSURL, NSURLSession, NSURLSessionWebSocketCloseCode,
-    NSURLSessionWebSocketMessage, NSURLSessionWebSocketMessageType, NSURLSessionWebSocketTask,
-};
 use tokio::sync::oneshot;
+
+#[cfg(target_vendor = "apple")]
+use {
+    block2::RcBlock,
+    objc2::{AnyThread, rc::Retained},
+    objc2_foundation::{
+        NSData, NSError, NSString, NSURL, NSURLSession, NSURLSessionWebSocketCloseCode,
+        NSURLSessionWebSocketMessage, NSURLSessionWebSocketMessageType, NSURLSessionWebSocketTask,
+    },
+};
+
+use futures_util::{SinkExt, StreamExt};
+use tokio_tungstenite::{
+    MaybeTlsStream, WebSocketStream,
+    tungstenite::{self, protocol::CloseFrame},
+};
 
 /// [`WebSocket`] message types
 #[derive(Debug, Clone)]
@@ -41,7 +51,31 @@ impl Message {
         Self::Binary(data.into())
     }
 
+    /// Convert to tokio-tungstenite message
+    fn to_tungstenite_message(&self) -> tungstenite::Message {
+        match self {
+            Message::Text(text) => tungstenite::Message::Text(text.clone()),
+            Message::Binary(data) => tungstenite::Message::Binary(data.clone()),
+        }
+    }
+
+    /// Create from tokio-tungstenite message
+    fn from_tungstenite_message(msg: tungstenite::Message) -> Result<Self> {
+        match msg {
+            tungstenite::Message::Text(text) => Ok(Message::Text(text)),
+            tungstenite::Message::Binary(data) => Ok(Message::Binary(data)),
+            tungstenite::Message::Close(_) => Err(Error::WebSocketClosed),
+            tungstenite::Message::Ping(_) | tungstenite::Message::Pong(_) => {
+                Err(Error::Internal("Received ping/pong frame".to_string()))
+            }
+            tungstenite::Message::Frame(_) => {
+                Err(Error::Internal("Received raw frame".to_string()))
+            }
+        }
+    }
+
     /// Convert to NSURLSessionWebSocketMessage
+    #[cfg(target_vendor = "apple")]
     fn to_ns_message(&self) -> Result<Retained<NSURLSessionWebSocketMessage>> {
         unsafe {
             match self {
@@ -64,6 +98,7 @@ impl Message {
     }
 
     /// Create from NSURLSessionWebSocketMessage
+    #[cfg(target_vendor = "apple")]
     fn from_ns_message(ns_message: &NSURLSessionWebSocketMessage) -> Result<Self> {
         unsafe {
             let message_type = ns_message.r#type();
@@ -107,7 +142,7 @@ impl Message {
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
-/// let websocket = client
+/// let mut websocket = client
 ///     .websocket()
 ///     .connect("wss://echo.websocket.org")
 ///     .await?;
@@ -190,7 +225,7 @@ impl From<CloseCode> for NSURLSessionWebSocketCloseCode {
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
-/// let websocket = client
+/// let mut websocket = client
 ///     .websocket()
 ///     .maximum_message_size(1024 * 1024)
 ///     .connect("wss://echo.websocket.org")
@@ -211,21 +246,50 @@ impl From<CloseCode> for NSURLSessionWebSocketCloseCode {
 /// # Ok(())
 /// # }
 /// ```
-pub struct WebSocket {
-    task: Retained<NSURLSessionWebSocketTask>,
+pub enum WebSocket {
+    /// Foundation backend using NSURLSessionWebSocketTask
+    #[cfg(target_vendor = "apple")]
+    Foundation {
+        /// The underlying NSURLSessionWebSocketTask
+        task: Retained<NSURLSessionWebSocketTask>,
+    },
+    /// Reqwest backend using tokio-tungstenite
+    Reqwest {
+        /// The underlying WebSocket stream
+        stream: WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+        /// Whether the connection has been closed
+        closed: bool,
+    },
 }
 
 impl WebSocket {
-    /// Create a new [`WebSocket`] connection
-    pub(crate) fn new(session: &NSURLSession, url: &str) -> Result<Self> {
+    /// Create a new Foundation [`WebSocket`] connection
+    #[cfg(target_vendor = "apple")]
+    pub(crate) fn new_foundation(session: &NSURLSession, url: &str) -> Result<Self> {
         unsafe {
             let nsurl = NSURL::URLWithString(&NSString::from_str(url)).ok_or(Error::InvalidUrl)?;
 
             let task = session.webSocketTaskWithURL(&nsurl);
             task.resume();
 
-            Ok(Self { task })
+            Ok(Self::Foundation { task })
         }
+    }
+
+    /// Create a new Reqwest [`WebSocket`] connection using tokio-tungstenite
+    pub(crate) async fn new_reqwest(url: &str) -> Result<Self> {
+        let (stream, _) =
+            tokio_tungstenite::connect_async(url)
+                .await
+                .map_err(|e| Error::Network {
+                    code: -1,
+                    message: format!("WebSocket connection failed: {}", e),
+                })?;
+
+        Ok(Self::Reqwest {
+            stream,
+            closed: false,
+        })
     }
 
     /// Send a message over the [`WebSocket`] connection.
@@ -246,7 +310,7 @@ impl WebSocket {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
-    /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
+    /// let mut websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// // Send text directly
     /// websocket.send(Message::text("Hello, World!")).await?;
@@ -259,41 +323,61 @@ impl WebSocket {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn send(&self, message: impl Into<Message>) -> Result<()> {
+    pub async fn send(&mut self, message: impl Into<Message>) -> Result<()> {
         let message: Message = message.into();
-        let ns_message = message.to_ns_message()?;
 
-        let (tx, rx) = oneshot::channel();
+        match self {
+            #[cfg(target_vendor = "apple")]
+            WebSocket::Foundation { task } => {
+                let ns_message = message.to_ns_message()?;
+                let (tx, rx) = oneshot::channel();
 
-        // Create a completion handler that can be called multiple times
-        let completion_handler = {
-            let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
-            RcBlock::new(move |error: *mut NSError| {
-                let result = if error.is_null() {
-                    Ok(())
-                } else {
-                    unsafe {
-                        let ns_error = &*error;
-                        Err(Error::from_ns_error(ns_error))
-                    }
+                // Create a completion handler that can be called multiple times
+                let completion_handler = {
+                    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+                    RcBlock::new(move |error: *mut NSError| {
+                        let result = if error.is_null() {
+                            Ok(())
+                        } else {
+                            unsafe {
+                                let ns_error = &*error;
+                                Err(Error::from_ns_error(ns_error))
+                            }
+                        };
+                        // Only send once - ignore subsequent calls
+                        if let Ok(mut tx_guard) = tx.lock() {
+                            if let Some(tx) = tx_guard.take() {
+                                let _ = tx.send(result);
+                            }
+                        }
+                    })
                 };
-                // Only send once - ignore subsequent calls
-                if let Ok(mut tx_guard) = tx.lock() {
-                    if let Some(tx) = tx_guard.take() {
-                        let _ = tx.send(result);
-                    }
-                }
-            })
-        };
 
-        unsafe {
-            self.task
-                .sendMessage_completionHandler(&ns_message, &completion_handler);
+                unsafe {
+                    task.sendMessage_completionHandler(&ns_message, &completion_handler);
+                }
+
+                let _ = rx.await.map_err(|_| {
+                    Error::Internal("WebSocket send completion handler was dropped".to_string())
+                })?;
+            }
+            WebSocket::Reqwest { stream, closed } => {
+                if *closed {
+                    return Err(Error::WebSocketClosed);
+                }
+
+                let tungstenite_message = message.to_tungstenite_message();
+                stream
+                    .send(tungstenite_message)
+                    .await
+                    .map_err(|e| Error::Network {
+                        code: -1,
+                        message: format!("WebSocket send failed: {}", e),
+                    })?;
+            }
         }
 
-        rx.await.map_err(|_| {
-            Error::Internal("WebSocket send completion handler was dropped".to_string())
-        })?
+        Ok(())
     }
 
     /// Receive a message from the [`WebSocket`] connection.
@@ -313,7 +397,7 @@ impl WebSocket {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
-    /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
+    /// let mut websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// // Send a message first
     /// websocket.send(Message::text("Hello")).await?;
@@ -327,47 +411,71 @@ impl WebSocket {
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn receive(&self) -> Result<Message> {
-        let (tx, rx) = oneshot::channel();
+    pub async fn receive(&mut self) -> Result<Message> {
+        match self {
+            #[cfg(target_vendor = "apple")]
+            WebSocket::Foundation { task } => {
+                let (tx, rx) = oneshot::channel();
 
-        // Create a completion handler that can be called multiple times
-        let completion_handler = {
-            let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
-            RcBlock::new(
-                move |message: *mut NSURLSessionWebSocketMessage, error: *mut NSError| {
-                    let result = if error.is_null() && !message.is_null() {
-                        unsafe {
-                            let ns_message = &*message;
-                            Message::from_ns_message(ns_message)
+                // Create a completion handler that can be called multiple times
+                let completion_handler = {
+                    let tx = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
+                    RcBlock::new(
+                        move |message: *mut NSURLSessionWebSocketMessage, error: *mut NSError| {
+                            let result = if error.is_null() && !message.is_null() {
+                                unsafe {
+                                    let ns_message = &*message;
+                                    Message::from_ns_message(ns_message)
+                                }
+                            } else if !error.is_null() {
+                                unsafe {
+                                    let ns_error = &*error;
+                                    Err(Error::from_ns_error(ns_error))
+                                }
+                            } else {
+                                Err(Error::Internal(
+                                    "WebSocket receive got null message and null error".to_string(),
+                                ))
+                            };
+                            // Only send once - ignore subsequent calls
+                            if let Ok(mut tx_guard) = tx.lock() {
+                                if let Some(tx) = tx_guard.take() {
+                                    let _ = tx.send(result);
+                                }
+                            }
+                        },
+                    )
+                };
+
+                unsafe {
+                    task.receiveMessageWithCompletionHandler(&completion_handler);
+                }
+
+                rx.await.map_err(|_| {
+                    Error::Internal("WebSocket receive completion handler was dropped".to_string())
+                })?
+            }
+            WebSocket::Reqwest { stream, closed } => {
+                if *closed {
+                    return Err(Error::WebSocketClosed);
+                }
+
+                let msg = stream.next().await.ok_or(Error::WebSocketClosed)?;
+                match msg {
+                    Ok(tungstenite_msg) => {
+                        if let tungstenite::Message::Close(_) = tungstenite_msg {
+                            *closed = true;
+                            return Err(Error::WebSocketClosed);
                         }
-                    } else if !error.is_null() {
-                        unsafe {
-                            let ns_error = &*error;
-                            Err(Error::from_ns_error(ns_error))
-                        }
-                    } else {
-                        Err(Error::Internal(
-                            "WebSocket receive got null message and null error".to_string(),
-                        ))
-                    };
-                    // Only send once - ignore subsequent calls
-                    if let Ok(mut tx_guard) = tx.lock() {
-                        if let Some(tx) = tx_guard.take() {
-                            let _ = tx.send(result);
-                        }
+                        Message::from_tungstenite_message(tungstenite_msg)
                     }
-                },
-            )
-        };
-
-        unsafe {
-            self.task
-                .receiveMessageWithCompletionHandler(&completion_handler);
+                    Err(e) => Err(Error::Network {
+                        code: -1,
+                        message: format!("WebSocket receive failed: {}", e),
+                    }),
+                }
+            }
         }
-
-        rx.await.map_err(|_| {
-            Error::Internal("WebSocket receive completion handler was dropped".to_string())
-        })?
     }
 
     /// Close the [`WebSocket`] connection.
@@ -388,7 +496,7 @@ impl WebSocket {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
-    /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
+    /// let mut websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// // Close normally
     /// websocket.close(CloseCode::Normal, Some("Session ended"));
@@ -398,11 +506,37 @@ impl WebSocket {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn close(&self, code: CloseCode, reason: Option<&str>) {
-        unsafe {
-            let reason_data = reason.map(|r| NSData::from_vec(r.as_bytes().to_vec()));
-            self.task
-                .cancelWithCloseCode_reason(code.into(), reason_data.as_deref());
+    pub async fn close(&mut self, code: CloseCode, reason: Option<&str>) -> Result<()> {
+        match self {
+            #[cfg(target_vendor = "apple")]
+            WebSocket::Foundation { task } => {
+                unsafe {
+                    let reason_data = reason.map(|r| NSData::from_vec(r.as_bytes().to_vec()));
+                    task.cancelWithCloseCode_reason(code.into(), reason_data.as_deref());
+                }
+                Ok(())
+            }
+            WebSocket::Reqwest { stream, closed } => {
+                if *closed {
+                    return Ok(());
+                }
+
+                let close_frame = reason.map(|r| CloseFrame {
+                    code: tungstenite::protocol::frame::coding::CloseCode::from(code as u16),
+                    reason: r.into(),
+                });
+
+                stream
+                    .close(close_frame)
+                    .await
+                    .map_err(|e| Error::Network {
+                        code: -1,
+                        message: format!("WebSocket close failed: {}", e),
+                    })?;
+
+                *closed = true;
+                Ok(())
+            }
         }
     }
 
@@ -419,7 +553,7 @@ impl WebSocket {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
-    /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
+    /// let mut websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// // Connection is open
     /// assert_eq!(websocket.close_code(), None);
@@ -431,9 +565,19 @@ impl WebSocket {
     /// # }
     /// ```
     pub fn close_code(&self) -> Option<isize> {
-        unsafe {
-            let code = self.task.closeCode();
-            if code.0 == 0 { None } else { Some(code.0) }
+        match self {
+            #[cfg(target_vendor = "apple")]
+            WebSocket::Foundation { task } => unsafe {
+                let code = task.closeCode();
+                if code.0 == 0 { None } else { Some(code.0) }
+            },
+            WebSocket::Reqwest { closed, .. } => {
+                if *closed {
+                    Some(CloseCode::Normal as isize)
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -450,7 +594,7 @@ impl WebSocket {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
-    /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
+    /// let mut websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// websocket.close(CloseCode::Normal, Some("User requested"));
     /// // After closing, reason should be available
@@ -459,10 +603,19 @@ impl WebSocket {
     /// # }
     /// ```
     pub fn close_reason(&self) -> Option<String> {
-        unsafe {
-            self.task
-                .closeReason()
-                .map(|data| String::from_utf8_lossy(&data.to_vec()).to_string())
+        match self {
+            #[cfg(target_vendor = "apple")]
+            WebSocket::Foundation { task } => unsafe {
+                task.closeReason()
+                    .map(|data| String::from_utf8_lossy(&data.to_vec()).to_string())
+            },
+            WebSocket::Reqwest { closed, .. } => {
+                if *closed {
+                    Some("Connection closed".to_string())
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -483,7 +636,7 @@ impl WebSocket {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
-    /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
+    /// let mut websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// // Set maximum message size to 1MB
     /// websocket.set_maximum_message_size(1024 * 1024);
@@ -491,8 +644,15 @@ impl WebSocket {
     /// # }
     /// ```
     pub fn set_maximum_message_size(&self, size: isize) {
-        unsafe {
-            self.task.setMaximumMessageSize(size);
+        match self {
+            #[cfg(target_vendor = "apple")]
+            WebSocket::Foundation { task } => unsafe {
+                task.setMaximumMessageSize(size);
+            },
+            WebSocket::Reqwest { .. } => {
+                // tokio-tungstenite doesn't support runtime max message size configuration
+                // This would need to be handled during connection setup
+            }
         }
     }
 
@@ -509,7 +669,7 @@ impl WebSocket {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
-    /// let websocket = client.websocket().connect("wss://echo.websocket.org").await?;
+    /// let mut websocket = client.websocket().connect("wss://echo.websocket.org").await?;
     ///
     /// let max_size = websocket.maximum_message_size();
     /// println!("Maximum message size: {} bytes", max_size);
@@ -517,7 +677,15 @@ impl WebSocket {
     /// # }
     /// ```
     pub fn maximum_message_size(&self) -> isize {
-        unsafe { self.task.maximumMessageSize() }
+        match self {
+            #[cfg(target_vendor = "apple")]
+            WebSocket::Foundation { task } => unsafe { task.maximumMessageSize() },
+            WebSocket::Reqwest { .. } => {
+                // tokio-tungstenite doesn't expose max message size
+                // Return a reasonable default
+                16 * 1024 * 1024 // 16MB default
+            }
+        }
     }
 }
 
@@ -535,7 +703,7 @@ impl WebSocket {
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
-/// let websocket = client
+/// let mut websocket = client
 ///     .websocket()
 ///     .maximum_message_size(1024 * 1024)  // 1MB max messages
 ///     .connect("wss://echo.websocket.org")
@@ -543,16 +711,35 @@ impl WebSocket {
 /// # Ok(())
 /// # }
 /// ```
-pub struct WebSocketBuilder {
-    session: Retained<NSURLSession>,
-    maximum_message_size: Option<isize>,
+pub enum WebSocketBuilder {
+    /// Foundation backend using NSURLSession
+    #[cfg(target_vendor = "apple")]
+    Foundation {
+        /// The NSURLSession instance to use for the WebSocket connection
+        session: Retained<NSURLSession>,
+        /// Maximum message size for the WebSocket connection
+        maximum_message_size: Option<isize>,
+    },
+    /// Reqwest backend using tokio-tungstenite
+    Reqwest {
+        /// Maximum message size for the WebSocket connection
+        maximum_message_size: Option<isize>,
+    },
 }
 
 impl WebSocketBuilder {
-    /// Create a new WebSocket builder
-    pub(crate) fn new(session: Retained<NSURLSession>) -> Self {
-        Self {
+    /// Create a new Foundation WebSocket builder
+    #[cfg(target_vendor = "apple")]
+    pub(crate) fn new_foundation(session: Retained<NSURLSession>) -> Self {
+        Self::Foundation {
             session,
+            maximum_message_size: None,
+        }
+    }
+
+    /// Create a new Reqwest WebSocket builder
+    pub(crate) fn new_reqwest() -> Self {
+        Self::Reqwest {
             maximum_message_size: None,
         }
     }
@@ -574,7 +761,7 @@ impl WebSocketBuilder {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
-    /// let websocket = client
+    /// let mut websocket = client
     ///     .websocket()
     ///     .maximum_message_size(1024 * 1024)  // 1MB
     ///     .connect("wss://echo.websocket.org")
@@ -583,7 +770,20 @@ impl WebSocketBuilder {
     /// # }
     /// ```
     pub fn maximum_message_size(mut self, size: isize) -> Self {
-        self.maximum_message_size = Some(size);
+        match &mut self {
+            #[cfg(target_vendor = "apple")]
+            WebSocketBuilder::Foundation {
+                maximum_message_size,
+                ..
+            } => {
+                *maximum_message_size = Some(size);
+            }
+            WebSocketBuilder::Reqwest {
+                maximum_message_size,
+            } => {
+                *maximum_message_size = Some(size);
+            }
+        }
         self
     }
 
@@ -604,7 +804,7 @@ impl WebSocketBuilder {
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
-    /// let websocket = client
+    /// let mut websocket = client
     ///     .websocket()
     ///     .connect("wss://echo.websocket.org")
     ///     .await?;
@@ -615,12 +815,27 @@ impl WebSocketBuilder {
     /// # }
     /// ```
     pub async fn connect(self, url: &str) -> Result<WebSocket> {
-        let websocket = WebSocket::new(&self.session, url)?;
+        match self {
+            #[cfg(target_vendor = "apple")]
+            WebSocketBuilder::Foundation {
+                session,
+                maximum_message_size,
+            } => {
+                let websocket = WebSocket::new_foundation(&session, url)?;
 
-        if let Some(size) = self.maximum_message_size {
-            websocket.set_maximum_message_size(size);
+                if let Some(size) = maximum_message_size {
+                    websocket.set_maximum_message_size(size);
+                }
+
+                Ok(websocket)
+            }
+            WebSocketBuilder::Reqwest {
+                maximum_message_size: _,
+            } => {
+                // Note: tokio-tungstenite doesn't support setting max message size at runtime
+                // This would need to be configured during connection
+                WebSocket::new_reqwest(url).await
+            }
         }
-
-        Ok(websocket)
     }
 }

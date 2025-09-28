@@ -35,6 +35,77 @@ impl ReqwestBackend {
             builder = builder.user_agent(user_agent);
         }
 
+        // Apply certificate validation settings
+        // TODO: Implement certificate validation settings for reqwest
+        // Note: danger_accept_invalid_certs may require specific reqwest features
+        if let Some(_ignore_certs) = config.ignore_certificate_errors {
+            // For now, we'll leave this as a placeholder
+            // builder = builder.danger_accept_invalid_certs(ignore_certs);
+        }
+
+        // Apply default headers
+        if let Some(default_headers) = config.default_headers {
+            // Convert http::HeaderMap to reqwest::header::HeaderMap
+            let mut reqwest_headers = reqwest::header::HeaderMap::new();
+            for (name, value) in default_headers {
+                if let Some(name) = name {
+                    if let Ok(reqwest_name) =
+                        reqwest::header::HeaderName::from_bytes(name.as_str().as_bytes())
+                    {
+                        if let Ok(reqwest_value) =
+                            reqwest::header::HeaderValue::from_bytes(value.as_bytes())
+                        {
+                            reqwest_headers.insert(reqwest_name, reqwest_value);
+                        }
+                    }
+                }
+            }
+            builder = builder.default_headers(reqwest_headers);
+        }
+
+        // Apply cookie configuration
+        if let Some(use_cookies) = config.use_cookies {
+            if use_cookies {
+                builder = builder.cookie_store(true);
+            }
+        }
+
+        // Apply proxy configurations
+        if let Some(http_proxy) = config.http_proxy {
+            let proxy_url = format!("http://{}:{}", http_proxy.host, http_proxy.port);
+            let mut proxy = reqwest::Proxy::http(&proxy_url)
+                .map_err(|e| Error::Internal(format!("Invalid HTTP proxy: {}", e)))?;
+
+            if let (Some(username), Some(password)) = (&http_proxy.username, &http_proxy.password) {
+                proxy = proxy.basic_auth(username, password);
+            }
+            builder = builder.proxy(proxy);
+        }
+
+        if let Some(https_proxy) = config.https_proxy {
+            let proxy_url = format!("https://{}:{}", https_proxy.host, https_proxy.port);
+            let mut proxy = reqwest::Proxy::https(&proxy_url)
+                .map_err(|e| Error::Internal(format!("Invalid HTTPS proxy: {}", e)))?;
+
+            if let (Some(username), Some(password)) = (&https_proxy.username, &https_proxy.password)
+            {
+                proxy = proxy.basic_auth(username, password);
+            }
+            builder = builder.proxy(proxy);
+        }
+
+        if let Some(socks_proxy) = config.socks_proxy {
+            let proxy_url = format!("socks5://{}:{}", socks_proxy.host, socks_proxy.port);
+            let mut proxy = reqwest::Proxy::all(&proxy_url)
+                .map_err(|e| Error::Internal(format!("Invalid SOCKS proxy: {}", e)))?;
+
+            if let (Some(username), Some(password)) = (&socks_proxy.username, &socks_proxy.password)
+            {
+                proxy = proxy.basic_auth(username, password);
+            }
+            builder = builder.proxy(proxy);
+        }
+
         let client = builder
             .build()
             .map_err(|e| Error::Internal(format!("Failed to create reqwest client: {}", e)))?;
@@ -174,5 +245,10 @@ impl ReqwestBackend {
                 Ok(reqwest::Body::from(""))
             }
         }
+    }
+
+    /// Get the underlying reqwest client
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
     }
 }

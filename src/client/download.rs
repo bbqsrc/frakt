@@ -1,5 +1,5 @@
 use crate::Result;
-use http::{HeaderMap, HeaderValue, header};
+use http::{HeaderMap, HeaderValue};
 use objc2::rc::Retained;
 use objc2_foundation::NSURLSession;
 
@@ -145,62 +145,18 @@ impl DownloadBuilder {
     /// let response = client
     ///     .download("https://api.example.com/files/123")
     ///     .header("X-API-Key", "your-api-key")?
-    ///     .header(http::header::ACCEPT, "application/octet-stream")?
+    ///     .header("Accept", "application/octet-stream")?
     ///     .to_file("./downloads/file.bin")
     ///     .send()
     ///     .await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub fn header(
-        mut self,
-        name: impl TryInto<http::HeaderName>,
-        value: impl Into<String>,
-    ) -> crate::Result<Self> {
-        let header_name = name.try_into().map_err(|_| crate::Error::InvalidHeader)?;
-        let header_value =
-            HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
+    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> crate::Result<Self> {
+        let header_name: http::HeaderName = name.into().parse().map_err(|_| crate::Error::InvalidHeader)?;
+        let header_value = HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
         self.headers.insert(header_name, header_value);
         Ok(self)
-    }
-
-    /// Set multiple headers at once using a HeaderMap.
-    ///
-    /// This method replaces all existing headers with the provided HeaderMap.
-    /// This is more efficient than chaining multiple `.header()` calls when you
-    /// need to set many headers for the download.
-    ///
-    /// # Arguments
-    ///
-    /// * `headers` - A HeaderMap containing all headers to set
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use rsurlsession::Client;
-    /// use http::{HeaderMap, header};
-    ///
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    ///
-    /// let mut headers = HeaderMap::new();
-    /// headers.insert(header::AUTHORIZATION, "Bearer token".parse()?);
-    /// headers.insert(header::ACCEPT, "application/octet-stream".parse()?);
-    /// headers.insert("X-Download-Priority", "high".parse()?);
-    ///
-    /// let response = client
-    ///     .download("https://api.example.com/files/123")
-    ///     .headers(headers)
-    ///     .to_file("./downloads/file.bin")
-    ///     .send()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn headers(mut self, headers: HeaderMap) -> Self {
-        self.headers = headers;
-        self
     }
 
     /// Set authentication for the download request.
@@ -230,9 +186,8 @@ impl DownloadBuilder {
     /// # }
     /// ```
     pub fn auth(mut self, auth: crate::Auth) -> crate::Result<Self> {
-        let header_value = HeaderValue::from_str(&auth.to_header_value())
-            .map_err(|_| crate::Error::InvalidHeader)?;
-        self.headers.insert(header::AUTHORIZATION, header_value);
+        let header_value = HeaderValue::from_str(&auth.to_header_value()).map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers.insert("Authorization", header_value);
         Ok(self)
     }
 
