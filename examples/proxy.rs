@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
 
     // This would normally use the proxy, but since proxy.example.com doesn't exist,
     // we'll get a connection error - which proves the proxy config is working
-    match client.get("https://httpbin.org/ip").send().await {
+    match client.get("https://httpbin.org/ip")?.send().await {
         Ok(response) => {
             println!("Response (unexpected success): {}", response.status());
             let text = response.text().await?;
@@ -31,7 +31,11 @@ async fn main() -> Result<()> {
         .proxy_auth("admin", "secret")
         .build()?;
 
-    match https_client.get("https://httpbin.org/headers").send().await {
+    match https_client
+        .get("https://httpbin.org/headers")?
+        .send()
+        .await
+    {
         Ok(response) => {
             println!("Response (unexpected success): {}", response.status());
         }
@@ -48,7 +52,7 @@ async fn main() -> Result<()> {
         .build()?;
 
     match socks_client
-        .get("https://httpbin.org/user-agent")
+        .get("https://httpbin.org/user-agent")?
         .send()
         .await
     {
@@ -69,7 +73,7 @@ async fn main() -> Result<()> {
         .proxy_auth("multi_user", "multi_pass")
         .build()?;
 
-    match multi_client.get("https://httpbin.org/get").send().await {
+    match multi_client.get("https://httpbin.org/get")?.send().await {
         Ok(response) => {
             println!("Response (unexpected success): {}", response.status());
         }
@@ -84,7 +88,7 @@ async fn main() -> Result<()> {
         .user_agent("rsurlsession-proxy-example/1.0")
         .build()?;
 
-    match direct_client.get("https://httpbin.org/get").send().await {
+    match direct_client.get("https://httpbin.org/get")?.send().await {
         Ok(response) => {
             println!(
                 "Direct connection successful! Status: {}",

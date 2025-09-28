@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Make a request and get a streaming response
     let response = client
-        .get("https://httpbin.org/bytes/8192") // Download 8KB
+        .get("https://httpbin.org/bytes/8192")? // Download 8KB
         .header("Accept", "application/octet-stream")?
         .send()
         .await?;

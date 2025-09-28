@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Download a file with progress tracking
     let download_response = client
-        .download("https://httpbin.org/bytes/10240") // Download 10KB
+        .download("https://httpbin.org/bytes/10240")? // Download 10KB
         .to_file("downloaded_file.bin")
         .progress(|downloaded, total| match total {
             Some(total_bytes) => {

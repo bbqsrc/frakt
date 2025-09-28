@@ -1,67 +1,150 @@
-use super::download::{DownloadFuture, DownloadResponse};
-use crate::Result;
-use http::{HeaderMap, HeaderValue, header};
+//! Background download builder for downloads that survive app termination
 
-/// Builder for downloading files in background sessions.
+use url::Url;
+
+use crate::backend::Backend;
+use crate::client::download::DownloadResponse;
+
+/// Background download builder for downloads that survive app termination
 ///
-/// `BackgroundDownloadBuilder` provides a specialized interface for downloading files
-/// that continue even when the app is suspended or terminated. This is particularly
-/// useful on iOS for large file downloads that need to complete in the background.
+/// Platform-specific behavior:
+/// - **Apple platforms**: Uses NSURLSession background downloads
+/// - **Unix platforms**: Uses double-fork daemon process with reqwest
+/// - **Other platforms**: Uses resumable downloads with retry logic
 ///
-/// Background downloads require a unique session identifier and have special handling
-/// for app lifecycle events.
-///
-/// # Examples
-///
-/// ```rust,no_run
-/// use rsurlsession::Client;
-///
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let client = Client::new()?;
-/// let response = client
-///     .download_background("https://example.com/large-file.zip")
-///     .session_identifier("com.myapp.background-downloads")
-///     .to_file("./downloads/large-file.zip")
-///     .progress(|downloaded, total| {
-///         if let Some(total) = total {
-///             let percent = (downloaded as f64 / total as f64) * 100.0;
-///             println!("Background download: {:.1}%", percent);
-///         }
-///     })
-///     .send()
-///     .await?;
-///
-/// println!("Background download completed: {}", response.file_path.display());
-/// # Ok(())
-/// # }
-/// ```
-/// Download builder for downloading files to disk
-pub struct DownloadBuilder {
+/// All platforms support:
+/// - Progress callbacks
+/// - Automatic resume on failure
+/// - Session identifiers for tracking
+pub struct BackgroundDownloadBuilder {
     backend: Backend,
-    url: String,
+    url: Url,
+    session_identifier: Option<String>,
     file_path: Option<std::path::PathBuf>,
     progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
 }
 
-impl DownloadBuilder {
-    /// Create a new download builder (internal use)
-    pub(crate) fn new(backend: Backend, url: String) -> Self {
+impl BackgroundDownloadBuilder {
+    /// Create a new background download builder (internal use)
+    pub(crate) fn new(backend: Backend, url: Url) -> Self {
         Self {
             backend,
             url,
+            session_identifier: None,
             file_path: None,
             progress_callback: None,
         }
     }
 
-    /// Set destination file path
+    /// Set session identifier for background downloads.
+    ///
+    /// The session identifier is used to track and manage background downloads
+    /// across app restarts. If not provided, a unique identifier will be
+    /// automatically generated based on process ID and timestamp.
+    ///
+    /// # Arguments
+    ///
+    /// * `identifier` - A unique string to identify this download session
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use rsurlsession::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://httpbin.org/bytes/10485760") // 10MB
+    ///     .session_identifier("my-app-update-v1.2.3")
+    ///     .to_file("updates/app-v1.2.3.zip")
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn session_identifier(mut self, identifier: impl Into<String>) -> Self {
+        self.session_identifier = Some(identifier.into());
+        self
+    }
+
+    /// Set the destination file path for the background download.
+    ///
+    /// The file will be created at the specified path. If the parent directories
+    /// don't exist, they will be created automatically. The download will continue
+    /// in the background and survive app termination on supported platforms.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The local file path where the downloaded content should be saved
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use rsurlsession::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://httpbin.org/bytes/104857600") // 100MB
+    ///     .to_file("downloads/large_file.zip")
+    ///     .progress(|downloaded, total| {
+    ///         if let Some(total) = total {
+    ///             println!("Background download: {}%", (downloaded * 100) / total);
+    ///         }
+    ///     })
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn to_file<P: AsRef<std::path::Path>>(mut self, path: P) -> Self {
         self.file_path = Some(path.as_ref().to_path_buf());
         self
     }
 
-    /// Set progress callback
+    /// Set a progress callback to monitor background download progress.
+    ///
+    /// The callback will be called periodically during the download with the number
+    /// of bytes downloaded so far and the total number of bytes to download (if known).
+    /// The progress callback works across app restarts on supported platforms.
+    ///
+    /// # Arguments
+    ///
+    /// * `callback` - A function that receives `(bytes_downloaded, total_bytes)`
+    ///   where `total_bytes` may be `None` if the server doesn't provide Content-Length
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **Apple platforms**: Progress is maintained by NSURLSession across app restarts
+    /// - **Unix platforms**: Progress is tracked by the daemon process
+    /// - **Other platforms**: Progress is only available while the app is running
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use rsurlsession::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://httpbin.org/bytes/1073741824") // 1GB
+    ///     .to_file("huge_download.bin")
+    ///     .progress(|bytes_downloaded, total_bytes| {
+    ///         match total_bytes {
+    ///             Some(total) => {
+    ///                 let percent = (bytes_downloaded as f64 / total as f64) * 100.0;
+    ///                 println!("Background download: {:.1}% ({} MB / {} MB)",
+    ///                     percent,
+    ///                     bytes_downloaded / 1_048_576,
+    ///                     total / 1_048_576);
+    ///             }
+    ///             None => {
+    ///                 println!("Background downloaded: {} MB", bytes_downloaded / 1_048_576);
+    ///             }
+    ///         }
+    ///     })
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn progress<F>(mut self, callback: F) -> Self
     where
         F: Fn(u64, Option<u64>) + Send + Sync + 'static,
@@ -70,57 +153,74 @@ impl DownloadBuilder {
         self
     }
 
-    /// Start the download
+    /// Start the background download and return immediately.
+    ///
+    /// This method initiates a background download that will continue even if the
+    /// application is terminated. The download behavior varies by platform:
+    ///
+    /// - **Apple platforms**: Uses NSURLSession background downloads
+    /// - **Unix platforms**: Spawns a daemon process using double-fork
+    /// - **Other platforms**: Uses resumable downloads with retry logic
+    ///
+    /// # Returns
+    ///
+    /// Returns a `DownloadResponse` immediately with initial download information.
+    /// The actual download continues in the background.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - No destination file path was specified using `to_file()`
+    /// - The parent directory cannot be created
+    /// - The background download session cannot be started
+    /// - Platform-specific background services are unavailable
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use rsurlsession::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Start a background download that survives app termination
+    /// let response = client
+    ///     .download_background("https://httpbin.org/bytes/1073741824") // 1GB
+    ///     .session_identifier("app-update-v2.0")
+    ///     .to_file("updates/app-v2.0.dmg")
+    ///     .progress(|downloaded, total| {
+    ///         // This will be called even after app restart on supported platforms
+    ///         if let Some(total) = total {
+    ///             println!("Download progress: {}%", (downloaded * 100) / total);
+    ///         }
+    ///     })
+    ///     .send()
+    ///     .await?;
+    ///
+    /// println!("Background download started for: {:?}", response.file_path);
+    /// // App can now terminate - download continues in background
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn send(self) -> crate::Result<DownloadResponse> {
-        let file_path = self.file_path.ok_or_else(|| {
-            crate::Error::Internal("Download file path not specified".to_string())
+        let file_path = self.file_path.clone().ok_or_else(|| {
+            crate::Error::Internal("Background download file path not specified".to_string())
         })?;
 
-        // Create a GET request using the backend
-        let request = crate::backend::types::BackendRequest {
-            method: http::Method::GET,
-            url: self.url,
-            headers: http::HeaderMap::new(),
-            body: None,
-        };
-
-        let response = self.backend.execute(request).await?;
-
-        // Stream response body to file
-        let mut file = tokio::fs::File::create(&file_path)
-            .await
-            .map_err(|e| crate::Error::Internal(format!("Failed to create file: {}", e)))?;
-
-        let mut receiver = response.body_receiver;
-        let mut bytes_downloaded = 0u64;
-
-        // Get content length for progress callback
-        let total_bytes = response.headers
-            .get("content-length")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse::<u64>().ok());
-
-        while let Some(chunk_result) = receiver.recv().await {
-            let chunk = chunk_result?;
-            bytes_downloaded += chunk.len() as u64;
-
-            // Call progress callback if provided
-            if let Some(ref callback) = self.progress_callback {
-                callback(bytes_downloaded, total_bytes);
-            }
-
-            tokio::io::AsyncWriteExt::write_all(&mut file, &chunk)
-                .await
-                .map_err(|e| crate::Error::Internal(format!("Failed to write to file: {}", e)))?;
+        // Ensure parent directory exists
+        if let Some(parent) = file_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                crate::Error::Internal(format!("Failed to create parent directory: {}", e))
+            })?;
         }
 
-        tokio::io::AsyncWriteExt::flush(&mut file)
+        // Delegate to backend
+        self.backend
+            .execute_background_download(
+                self.url,
+                file_path,
+                self.session_identifier,
+                self.progress_callback,
+            )
             .await
-            .map_err(|e| crate::Error::Internal(format!("Failed to flush file: {}", e)))?;
-
-        Ok(DownloadResponse {
-            file_path,
-            bytes_downloaded,
-        })
     }
 }

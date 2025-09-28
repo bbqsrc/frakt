@@ -66,7 +66,9 @@ async fn main() -> Result<()> {
 
     // Close the connection
     println!("Closing WebSocket connection...");
-    websocket.close(rsurlsession::CloseCode::Normal, Some("Example completed"));
+    websocket
+        .close(rsurlsession::CloseCode::Normal, Some("Example completed"))
+        .await?;
 
     // Check close info
     if let Some(code) = websocket.close_code() {

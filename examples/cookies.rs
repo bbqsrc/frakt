@@ -21,7 +21,7 @@ async fn main() -> Result<()> {
     // 1. Set cookies via httpbin
     println!("Setting cookies via httpbin...");
     let response = client
-        .get("https://httpbin.org/cookies/set/session_id/abc123")
+        .get("https://httpbin.org/cookies/set/session_id/abc123")?
         .send()
         .await?;
 
@@ -48,14 +48,14 @@ async fn main() -> Result<()> {
 
     // 4. Make request that should include cookies
     println!("\nMaking request to check cookies...");
-    let response = client.get("https://httpbin.org/cookies").send().await?;
+    let response = client.get("https://httpbin.org/cookies")?.send().await?;
 
     let text = response.text().await?;
     println!("Cookies response: {}", text);
 
     // 5. Test with JSON endpoint that requires cookies
     println!("\nTesting JSON response with cookies...");
-    let response = client.get("https://httpbin.org/json").send().await?;
+    let response = client.get("https://httpbin.org/json")?.send().await?;
 
     let json_text = response.text().await?;
     println!("JSON response: {}", json_text);

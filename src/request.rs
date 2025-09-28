@@ -1,16 +1,20 @@
 //! Request types and builders with backend abstraction
 
+use std::sync::Arc;
+
 use crate::backend::{Backend, types::BackendRequest};
 use crate::{Result, body::Body};
 use http::{HeaderMap, HeaderValue, Method, header};
+use url::Url;
 
 /// An HTTP request ready to be executed using any backend
 pub struct Request {
     pub(crate) method: Method,
-    pub(crate) url: String,
+    pub(crate) url: Url,
     pub(crate) headers: HeaderMap,
     pub(crate) body: Option<Body>,
     pub(crate) backend: Backend,
+    pub(crate) progress_callback: Option<Arc<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
 }
 
 impl Request {
@@ -21,6 +25,7 @@ impl Request {
             url: self.url,
             headers: self.headers,
             body: self.body,
+            progress_callback: self.progress_callback,
         };
 
         let backend_response = self.backend.execute(backend_request).await?;
@@ -31,15 +36,15 @@ impl Request {
 /// Builder for constructing HTTP requests with backend abstraction
 pub struct RequestBuilder {
     method: Method,
-    url: String,
+    url: Url,
     headers: HeaderMap,
     body: Option<Body>,
     backend: Backend,
-    progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+    progress_callback: Option<Arc<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
 }
 
 impl RequestBuilder {
-    pub(crate) fn new(method: Method, url: String, backend: Backend) -> Self {
+    pub(crate) fn new(method: Method, url: Url, backend: Backend) -> Self {
         Self {
             method,
             url,
@@ -107,7 +112,7 @@ impl RequestBuilder {
     where
         F: Fn(u64, Option<u64>) + Send + Sync + 'static,
     {
-        self.progress_callback = Some(Box::new(callback));
+        self.progress_callback = Some(Arc::new(callback));
         self
     }
 
@@ -131,6 +136,7 @@ impl RequestBuilder {
             headers: self.headers,
             body: self.body,
             backend: self.backend,
+            progress_callback: self.progress_callback,
         };
         request.send().await
     }

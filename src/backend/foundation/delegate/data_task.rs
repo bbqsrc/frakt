@@ -77,7 +77,7 @@ define_class!(
                 // Check if this is a server trust challenge
                 if auth_method.isEqualToString(&NSURLAuthenticationMethodServerTrust) {
                     // Check if we should ignore certificate errors from session config
-                    let config = session.configuration();
+                    let _config = session.configuration();
 
                     // For now, we'll use the default handling which respects the session configuration
                     // In the future, this could be expanded to allow custom certificate validation
@@ -91,6 +91,38 @@ define_class!(
                         NSURLSessionAuthChallengeDisposition::PerformDefaultHandling,
                         std::ptr::null_mut(),
                     ));
+                }
+            }
+        }
+
+        #[unsafe(method(URLSession:task:didSendBodyData:totalBytesSent:totalBytesExpectedToSend:))]
+        fn URLSession_task_didSendBodyData_totalBytesSent_totalBytesExpectedToSend(
+            &self,
+            _session: &NSURLSession,
+            task: &NSURLSessionTask,
+            _bytes_sent: i64,
+            total_bytes_sent: i64,
+            total_bytes_expected_to_send: i64,
+        ) {
+            let ivars = self.ivars();
+            let task_id = unsafe { task.taskIdentifier() } as usize;
+
+            if let Ok(contexts) = ivars.task_contexts.lock() {
+                if let Some(shared_context) = contexts.get(&task_id) {
+                    // Update progress tracking
+                    if total_bytes_expected_to_send > 0 {
+                        shared_context
+                            .set_total_bytes_expected(total_bytes_expected_to_send as u64);
+                    }
+
+                    // Set current progress (this will trigger callbacks)
+                    let previous_bytes = shared_context
+                        .bytes_downloaded
+                        .load(std::sync::atomic::Ordering::Acquire);
+                    let additional = (total_bytes_sent as u64).saturating_sub(previous_bytes);
+                    if additional > 0 {
+                        shared_context.update_progress(additional);
+                    }
                 }
             }
         }

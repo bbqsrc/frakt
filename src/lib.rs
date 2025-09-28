@@ -1,10 +1,10 @@
-//! Ergonomic NSURLSession bindings for Rust
+//! Cross-platform HTTP client with native backend support
 //!
-//! This crate provides async-only bindings to Apple's NSURLSession API,
-//! designed to work seamlessly with tokio. It offers a high-level, ergonomic
-//! interface for making HTTP requests, downloading files, uploading data,
-//! and establishing WebSocket connections while leveraging NSURLSession's
-//! native performance optimizations.
+//! This crate provides a unified async HTTP client that automatically selects
+//! the best backend for your platform. On Apple platforms, it uses NSURLSession
+//! for native performance and iOS background downloads. On other platforms,
+//! it uses reqwest with additional features like daemon processes for
+//! background downloads on Unix systems.
 //!
 //! # Features
 //!
@@ -12,8 +12,8 @@
 //! - **HTTP client**: Full-featured HTTP client with support for all standard methods
 //! - **File downloads**: Efficient streaming downloads directly to disk with progress tracking
 //! - **File uploads**: Support for uploading files or data with progress tracking
-//! - **Background downloads**: iOS background downloads that continue when app is suspended
-//! - **WebSocket support**: Native WebSocket connections using NSURLSessionWebSocketTask
+//! - **Background downloads**: Platform-specific background downloads (NSURLSession on Apple, daemon processes on Unix)
+//! - **WebSocket support**: Native WebSocket connections (NSURLSessionWebSocketTask on Apple, tokio-tungstenite elsewhere)
 //! - **Cookie management**: Automatic cookie handling with custom cookie jar support
 //! - **Authentication**: Built-in support for Bearer, Basic, and custom authentication
 //! - **Proxy support**: HTTP, HTTPS, and SOCKS proxy configuration
@@ -41,7 +41,7 @@
 //!     let client = Client::new()?;
 //!
 //!     let response = client
-//!         .get("https://httpbin.org/json")
+//!         .get("https://httpbin.org/json")?
 //!         .header(http::header::ACCEPT, "application/json")?
 //!         .send()
 //!         .await?;
@@ -64,7 +64,7 @@
 //!     let client = Client::new()?;
 //!
 //!     let response = client
-//!         .download("https://example.com/large-file.zip")
+//!         .download("https://example.com/large-file.zip")?
 //!         .to_file("./downloads/file.zip")
 //!         .progress(|downloaded, total| {
 //!             if let Some(total) = total {
@@ -93,7 +93,7 @@
 //!     let client = Client::new()?;
 //!
 //!     let response = client
-//!         .upload("https://httpbin.org/post")
+//!         .upload("https://httpbin.org/post")?
 //!         .from_file("./upload.txt")
 //!         .header(http::header::CONTENT_TYPE, "text/plain")?
 //!         .progress(|uploaded, total| {
@@ -139,9 +139,13 @@
 //! }
 //! ```
 //!
-//! ## Background Downloads (iOS)
+//! ## Background Downloads
 //!
-//! Background downloads continue even when your app is suspended or terminated:
+//! Background downloads continue even when your app is suspended or terminated.
+//! The implementation varies by platform:
+//! - **Apple platforms**: Uses NSURLSession background downloads
+//! - **Unix systems**: Uses daemon processes for true background operation
+//! - **Other platforms**: Uses resumable downloads with retry logic
 //!
 //! ```rust,no_run
 //! use rsurlsession::Client;
@@ -185,7 +189,7 @@
 //!         .build()?;
 //!
 //!     let response = client
-//!         .get("https://api.example.com/data")
+//!         .get("https://api.example.com/data")?
 //!         .send()
 //!         .await?;
 //!
@@ -195,21 +199,28 @@
 //!
 //! # Platform Support
 //!
-//! This crate is designed specifically for Apple platforms (macOS, iOS, tvOS, watchOS)
-//! and requires the NSURLSession framework to be available. It will not compile on
-//! other platforms.
+//! This crate supports multiple platforms through a backend abstraction:
+//!
+//! - **Apple platforms** (macOS, iOS, tvOS, watchOS): Uses NSURLSession for native performance and iOS background downloads
+//! - **Other platforms**: Uses reqwest with platform-specific enhancements:
+//!   - **Unix systems**: Daemon processes for true background downloads
+//!   - **All platforms**: Resumable downloads with retry logic
 //!
 //! # Performance
 //!
-//! By leveraging NSURLSession, this crate benefits from Apple's optimized networking
-//! stack including:
-//!
+//! **Apple platforms** benefit from NSURLSession's optimized networking stack:
 //! - HTTP/2 and HTTP/3 support
 //! - Connection pooling and reuse
 //! - Automatic compression (gzip, deflate)
 //! - Network quality-of-service (QoS) handling
 //! - Cellular and Wi-Fi network management
-//! - Background transfer capabilities
+//! - True background transfer capabilities
+//!
+//! **Other platforms** use reqwest with additional features:
+//! - HTTP/2 support via reqwest
+//! - Connection pooling and keep-alive
+//! - Automatic decompression
+//! - Background downloads via daemon processes (Unix) or resumable downloads
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(missing_docs)]
@@ -218,8 +229,8 @@
 
 pub use auth::Auth;
 pub use client::{
-    BackgroundDownloadBuilder, Client, ClientBuilder, DownloadBuilder, DownloadResponse,
-    UploadBuilder,
+    BackendType, BackgroundDownloadBuilder, Client, ClientBuilder, DownloadBuilder,
+    DownloadResponse, UploadBuilder,
 };
 pub use error::{Error, Result};
 pub use request::{Request, RequestBuilder};
@@ -243,10 +254,5 @@ mod cookies;
 mod error;
 mod request;
 mod response;
-mod session;
 mod task;
 mod websocket;
-
-// Only include delegates on Apple platforms
-#[cfg(target_vendor = "apple")]
-mod delegate;

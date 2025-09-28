@@ -1,5 +1,7 @@
 //! Response types with backend abstraction
 
+use std::fmt::Debug;
+
 use crate::backend::types::BackendResponse;
 use crate::{Error, Result};
 use bytes::Bytes;
@@ -11,6 +13,15 @@ pub struct Response {
     status: StatusCode,
     headers: HeaderMap,
     body_receiver: mpsc::Receiver<Result<Bytes>>,
+}
+
+impl Debug for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Response")
+            .field("status", &self.status)
+            .field("headers", &self.headers)
+            .finish()
+    }
 }
 
 impl Response {

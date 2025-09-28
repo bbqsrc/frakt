@@ -38,7 +38,7 @@ use std::borrow::Cow;
 ///
 /// // `String` automatically converts to [`Body`]
 /// let response = client
-///     .post("https://api.example.com/data")
+///     .post("https://api.example.com/data")?
 ///     .body("Hello, World!")
 ///     .send()
 ///     .await?;

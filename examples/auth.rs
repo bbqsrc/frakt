@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Using: {}", basic_auth);
 
     let response = client
-        .get("https://httpbin.org/basic-auth/testuser/testpass")
+        .get("https://httpbin.org/basic-auth/testuser/testpass")?
         .auth(basic_auth)
         .send()
         .await?;
@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Using: {}", bearer_auth);
 
     let response = client
-        .get("https://httpbin.org/bearer")
+        .get("https://httpbin.org/bearer")?
         .auth(bearer_auth)
         .send()
         .await?;
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Using: {}", custom_auth);
 
     let response = client
-        .get("https://httpbin.org/headers")
+        .get("https://httpbin.org/headers")?
         .auth(custom_auth)
         .send()
         .await?;
@@ -78,8 +78,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let upload_data = b"Secret data that requires authentication";
 
     let response = client
-        .upload("https://httpbin.org/post")
-        .auth(Auth::bearer("upload-token-789"))
+        .upload("https://httpbin.org/post")?
+        .auth(Auth::bearer("upload-token-789"))?
         .from_data(upload_data.to_vec())
         .header("Content-Type", "text/plain")?
         .send()
@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test 5: Download with Authentication (using basic auth endpoint that returns data)
     println!("\n=== Testing Download with Authentication ===");
     let response = client
-        .get("https://httpbin.org/basic-auth/download-user/download-pass")
+        .get("https://httpbin.org/basic-auth/download-user/download-pass")?
         .auth(Auth::basic("download-user", "download-pass"))
         .send()
         .await?;

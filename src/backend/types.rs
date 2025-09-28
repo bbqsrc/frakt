@@ -2,20 +2,22 @@
 
 use crate::body::Body;
 use http::{HeaderMap, Method, StatusCode};
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use tokio::sync::mpsc;
+use url::Url;
 
 /// Platform-agnostic HTTP request
-#[derive(Debug, Clone)]
 pub struct BackendRequest {
     /// HTTP method for the request
     pub method: Method,
     /// URL for the request
-    pub url: String,
+    pub url: Url,
     /// Headers for the request
     pub headers: HeaderMap,
     /// Optional body content
     pub body: Option<Body>,
+    /// Optional progress callback for uploads
+    pub progress_callback: Option<ProgressCallback>,
 }
 
 /// Platform-agnostic HTTP response
@@ -62,4 +64,4 @@ pub struct ProgressInfo {
 }
 
 /// Callback type for progress reporting
-pub type ProgressCallback = Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>;
+pub type ProgressCallback = Arc<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>;

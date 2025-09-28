@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test GET request
     let response = client
-        .get("https://httpbin.org/get")
+        .get("https://httpbin.org/get")?
         .header("Accept", "application/json")?
         .send()
         .await?;
@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test POST request
     let response = client
-        .post("https://httpbin.org/post")
+        .post("https://httpbin.org/post")?
         .header("Content-Type", "application/json")?
         .text(r#"{"test": "data"}"#)
         .send()

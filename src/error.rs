@@ -14,7 +14,7 @@ use thiserror::Error;
 ///
 /// async fn make_request() -> Result<String> {
 ///     let client = Client::new()?;
-///     let response = client.get("https://httpbin.org/get").send().await?;
+///     let response = client.get("https://httpbin.org/get")?.send().await?;
 ///     response.text().await
 /// }
 /// ```
@@ -31,10 +31,10 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// use rsurlsession::{Client, Error};
 ///
 /// # #[tokio::main]
-/// # async fn main() {
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new().unwrap();
 ///
-/// match client.get("https://invalid-url").send().await {
+/// match client.get("https://invalid-url")?.send().await {
 ///     Ok(response) => println!("Success: {}", response.status()),
 ///     Err(Error::InvalidUrl) => println!("Invalid URL provided"),
 ///     Err(Error::Network { code, message }) => {
@@ -43,6 +43,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///     Err(Error::Timeout) => println!("Request timed out"),
 ///     Err(e) => println!("Other error: {}", e),
 /// }
+/// # Ok(())
 /// # }
 /// ```
 #[derive(Debug, Error)]
@@ -144,37 +145,4 @@ pub enum Error {
     /// in the library.
     #[error("Internal error: {0}")]
     Internal(String),
-}
-
-#[cfg(target_vendor = "apple")]
-impl Error {
-    /// Convert NSError to our Error type
-    pub(crate) fn from_ns_error(error: &objc2_foundation::NSError) -> Self {
-        use objc2_foundation::NSURLErrorDomain;
-
-        let domain = error.domain();
-        let code = error.code();
-        let message = unsafe {
-            objc2::rc::autoreleasepool(|pool| error.localizedDescription().to_str(pool).to_string())
-        };
-
-        if unsafe { domain.isEqualToString(&NSURLErrorDomain) } {
-            match code {
-                -1001 => Error::Timeout,
-                -999 => Error::Cancelled,
-                -1200..=-1000 => Error::Tls { message },
-                _ => Error::Network {
-                    code: code.try_into().unwrap(),
-                    message,
-                },
-            }
-        } else {
-            Error::Internal(format!(
-                "Domain: {}, Code: {}, Message: {}",
-                unsafe { objc2::rc::autoreleasepool(|pool| domain.to_str(pool).to_string()) },
-                code,
-                message
-            ))
-        }
-    }
 }

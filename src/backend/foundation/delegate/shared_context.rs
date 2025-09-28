@@ -198,12 +198,24 @@ impl TaskSharedContext {
 
     /// Set error from string message
     pub fn set_error_from_string(&self, message: String) {
+        use objc2::runtime::{AnyObject, ProtocolObject};
+        use objc2_foundation::{NSMutableDictionary, NSString};
+
         // Create a simple NSError for the message
+        let user_info = unsafe {
+            let dict = NSMutableDictionary::new();
+            dict.setObject_forKey(
+                &NSString::from_str(&message) as &AnyObject,
+                ProtocolObject::from_ref(&*NSString::from_str("NSLocalizedDescription")),
+            );
+            dict
+        };
+
         let error = unsafe {
             objc2_foundation::NSError::errorWithDomain_code_userInfo(
                 &objc2_foundation::NSString::from_str("RSURLSessionError"),
                 -1,
-                None,
+                Some(&user_info),
             )
         };
         self.error.store(Some(Arc::new(error)));

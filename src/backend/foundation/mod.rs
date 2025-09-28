@@ -1,21 +1,40 @@
+#![allow(non_snake_case)]
+
 //! Foundation backend using NSURLSession
 
 /// Foundation delegate implementations
 pub mod delegate;
 
+/// Foundation cookie storage implementation
+pub mod cookies;
+pub use cookies::FoundationCookieStorage;
+
+/// Foundation WebSocket implementation
+pub mod websocket;
+pub use websocket::{FoundationWebSocket, FoundationWebSocketBuilder};
+
+/// Foundation error handling
+pub mod error;
+
 use crate::backend::types::{BackendRequest, BackendResponse};
 use crate::{Error, Result};
+use block2::StackBlock;
 use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
+use objc2::runtime::Bool;
 use objc2::runtime::ProtocolObject;
 use objc2_foundation::{NSHTTPURLResponse, NSMutableURLRequest, NSString, NSURL, NSURLSession};
-use std::str::FromStr;
+use std::ptr::NonNull;
 use tokio::sync::mpsc;
+use url::Url;
 
 /// Foundation backend using NSURLSession
 #[derive(Clone)]
 pub struct FoundationBackend {
     session: Retained<NSURLSession>,
     delegate: Retained<delegate::DataTaskDelegate>,
+    cookie_jar: Option<crate::CookieJar>,
+    default_headers: Option<http::HeaderMap>,
 }
 
 impl FoundationBackend {
@@ -31,7 +50,12 @@ impl FoundationBackend {
             )
         };
 
-        Ok(Self { session, delegate })
+        Ok(Self {
+            session,
+            delegate,
+            cookie_jar: None,
+            default_headers: None,
+        })
     }
 
     /// Create a new Foundation backend with custom session configuration
@@ -39,7 +63,12 @@ impl FoundationBackend {
         session: Retained<NSURLSession>,
         delegate: Retained<delegate::DataTaskDelegate>,
     ) -> Self {
-        Self { session, delegate }
+        Self {
+            session,
+            delegate,
+            cookie_jar: None,
+            default_headers: None,
+        }
     }
 
     /// Create a new Foundation backend with configuration
@@ -56,6 +85,9 @@ impl FoundationBackend {
             }
         }
 
+        // Other configuration options like default headers are stored in the backend
+        // and applied to individual requests
+
         let session = unsafe {
             NSURLSession::sessionWithConfiguration_delegate_delegateQueue(
                 &session_config,
@@ -64,7 +96,12 @@ impl FoundationBackend {
             )
         };
 
-        Ok(Self { session, delegate })
+        Ok(Self {
+            session,
+            delegate,
+            cookie_jar: config.cookie_jar,
+            default_headers: config.default_headers,
+        })
     }
 
     /// Get the underlying NSURLSession (for WebSocket support)
@@ -74,16 +111,43 @@ impl FoundationBackend {
 
     /// Execute an HTTP request using NSURLSession
     pub async fn execute(&self, request: BackendRequest) -> Result<BackendResponse> {
-        // Create NSURLRequest
+        // Create NSURLRequest and validate URL
         let nsurl = unsafe {
-            NSURL::URLWithString(&NSString::from_str(&request.url)).ok_or(Error::InvalidUrl)?
+            NSURL::URLWithString(&NSString::from_str(&request.url.as_str()))
+                .ok_or(Error::InvalidUrl)?
         };
+
+        // Validate URL scheme using Foundation APIs
+        let scheme = unsafe { nsurl.scheme() };
+        if let Some(scheme_str) = scheme {
+            let scheme_string = scheme_str.to_string();
+            match scheme_string.as_str() {
+                "http" | "https" => {}
+                _ => {
+                    return Err(Error::InvalidUrl);
+                }
+            }
+        } else {
+            return Err(Error::InvalidUrl);
+        }
 
         let nsrequest = unsafe {
             let req = NSMutableURLRequest::requestWithURL(&nsurl);
             req.setHTTPMethod(&NSString::from_str(request.method.as_str()));
 
-            // Set headers
+            // Set default headers first
+            if let Some(ref default_headers) = self.default_headers {
+                for (name, value) in default_headers {
+                    req.setValue_forHTTPHeaderField(
+                        Some(&NSString::from_str(
+                            value.to_str().expect("Invalid default header value"),
+                        )),
+                        &NSString::from_str(name.as_str()),
+                    );
+                }
+            }
+
+            // Set request headers (these can override default headers)
             for (name, value) in &request.headers {
                 req.setValue_forHTTPHeaderField(
                     Some(&NSString::from_str(
@@ -145,8 +209,16 @@ impl FoundationBackend {
             req
         };
 
-        // Create task context
-        let task_context = std::sync::Arc::new(delegate::shared_context::TaskSharedContext::new());
+        // Create task context with progress callback if present
+        let task_context = if let Some(progress_callback) = request.progress_callback {
+            std::sync::Arc::new(
+                delegate::shared_context::TaskSharedContext::with_progress_callback(
+                    progress_callback,
+                ),
+            )
+        } else {
+            std::sync::Arc::new(delegate::shared_context::TaskSharedContext::new())
+        };
 
         // Create data task
         let data_task = unsafe { self.session.dataTaskWithRequest(&nsrequest) };
@@ -195,28 +267,52 @@ impl FoundationBackend {
 
         unsafe {
             if let Some(http_response) = response.as_ref().downcast_ref::<NSHTTPURLResponse>() {
-                let _all_headers = http_response.allHeaderFields();
+                let all_headers = http_response.allHeaderFields();
 
-                // TODO: Implement proper header extraction from NSDictionary
-                // The objc2-foundation API for iterating NSDictionary is complex
-                // For now, at least we extract the basic headers manually:
+                use std::cell::RefCell;
+                use std::sync::Arc;
 
-                // Add common headers that we can extract directly
-                if let Some(content_type) =
-                    http_response.valueForHTTPHeaderField(&NSString::from_str("Content-Type"))
-                {
-                    if let Ok(ct_str) = content_type.to_string().parse::<http::HeaderValue>() {
-                        headers.insert(http::header::CONTENT_TYPE, ct_str);
+                let headers_cell = Arc::new(RefCell::new(http::HeaderMap::new()));
+                let headers_cell_clone = headers_cell.clone();
+
+                let closure = move |key: NonNull<AnyObject>,
+                                    value: NonNull<AnyObject>,
+                                    _stop: NonNull<Bool>| {
+                    // Cast to NSString
+                    if let Some(key_nsstring) = key.as_ref().downcast_ref::<NSString>() {
+                        if let Some(value_nsstring) = value.as_ref().downcast_ref::<NSString>() {
+                            let key_str = key_nsstring.to_string();
+                            let value_str = value_nsstring.to_string();
+
+                            // Convert to http types and insert
+                            if let (Ok(header_name), Ok(header_value)) = (
+                                http::HeaderName::from_bytes(key_str.as_bytes()),
+                                http::HeaderValue::from_str(&value_str),
+                            ) {
+                                headers_cell_clone
+                                    .borrow_mut()
+                                    .insert(header_name, header_value);
+                            }
+                        }
                     }
-                }
+                };
 
-                if let Some(content_length) =
-                    http_response.valueForHTTPHeaderField(&NSString::from_str("Content-Length"))
-                {
-                    if let Ok(cl_str) = content_length.to_string().parse::<http::HeaderValue>() {
-                        headers.insert(http::header::CONTENT_LENGTH, cl_str);
-                    }
-                }
+                // Transform FnMut to Fn using RefCell
+                let block = StackBlock::new(
+                    move |key: NonNull<AnyObject>,
+                          value: NonNull<AnyObject>,
+                          stop: NonNull<Bool>| { closure(key, value, stop) },
+                );
+
+                // Call enumerateKeysAndObjectsUsingBlock
+                let _: () =
+                    objc2::msg_send![&*all_headers, enumerateKeysAndObjectsUsingBlock: &*block];
+                drop(block);
+
+                // Extract the final headers
+                headers = Arc::try_unwrap(headers_cell)
+                    .unwrap_or_else(|_| panic!("Headers RefCell still has references"))
+                    .into_inner();
             }
         }
 
@@ -249,6 +345,103 @@ impl FoundationBackend {
             headers,
             body_receiver: rx,
         })
+    }
+
+    /// Execute a background download
+    pub async fn execute_background_download(
+        &self,
+        url: Url,
+        file_path: std::path::PathBuf,
+        session_identifier: Option<String>,
+        progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+    ) -> Result<crate::client::download::DownloadResponse> {
+        use delegate::background_session::BackgroundSessionDelegate;
+        use delegate::shared_context::TaskSharedContext;
+        use objc2_foundation::NSURLSessionConfiguration;
+        use std::sync::Arc;
+
+        // Generate session identifier if not provided
+        let session_id = session_identifier.unwrap_or_else(|| {
+            format!(
+                "rsurlsession-bg-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            )
+        });
+
+        // Create background session configuration
+        let session_config = unsafe {
+            NSURLSessionConfiguration::backgroundSessionConfigurationWithIdentifier(
+                &NSString::from_str(&session_id),
+            )
+        };
+
+        // Create background delegate
+        let delegate = BackgroundSessionDelegate::new();
+        let session = unsafe {
+            NSURLSession::sessionWithConfiguration_delegate_delegateQueue(
+                &session_config,
+                Some(ProtocolObject::from_ref(&*delegate)),
+                None,
+            )
+        };
+
+        // Create download task
+        let nsurl = unsafe {
+            NSURL::URLWithString(&NSString::from_str(url.as_str())).ok_or(Error::InvalidUrl)?
+        };
+
+        let download_task = unsafe { session.downloadTaskWithURL(&nsurl) };
+        let task_id = unsafe { download_task.taskIdentifier() } as usize;
+
+        // Create task context
+        let mut task_context = if let Some(callback) = progress_callback {
+            TaskSharedContext::with_progress_callback(Arc::new(callback))
+        } else {
+            TaskSharedContext::new()
+        };
+
+        task_context.download_context = Some(Arc::new(
+            delegate::shared_context::DownloadContext::new(Some(file_path.clone())),
+        ));
+
+        let task_context = Arc::new(task_context);
+
+        // Register task with delegate
+        delegate.register_task(task_id, task_context.clone());
+
+        // Start download
+        unsafe {
+            download_task.resume();
+        }
+
+        // Wait for completion
+        while !task_context.is_completed() {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        // Check for errors
+        if let Some(error) = task_context.error.load_full() {
+            return Err(Error::from_ns_error(&*error));
+        }
+
+        // Calculate bytes downloaded
+        let bytes_downloaded = task_context
+            .bytes_downloaded
+            .load(std::sync::atomic::Ordering::Relaxed);
+
+        Ok(crate::client::download::DownloadResponse {
+            file_path,
+            bytes_downloaded,
+        })
+    }
+
+    /// Get the cookie jar if configured
+    pub fn cookie_jar(&self) -> Option<&crate::CookieJar> {
+        self.cookie_jar.as_ref()
     }
 }
 

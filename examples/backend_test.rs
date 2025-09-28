@@ -36,9 +36,10 @@ async fn test_backend(backend: Backend, name: &str) -> Result<(), Box<dyn std::e
 
     let request = BackendRequest {
         method: Method::GET,
-        url: "https://httpbin.org/json".to_string(),
+        url: "https://httpbin.org/json".try_into().unwrap(),
         headers: HeaderMap::new(),
         body: None,
+        progress_callback: None,
     };
 
     match backend.execute(request).await {

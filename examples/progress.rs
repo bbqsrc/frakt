@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Make a request with progress tracking
     let response = client
-        .get("https://httpbin.org/bytes/5242880") // Download 5MB for more granular progress
+        .get("https://httpbin.org/bytes/5242880")? // Download 5MB for more granular progress
         .header("Accept", "application/octet-stream")?
         .progress(|downloaded, total| match total {
             Some(total_bytes) => {

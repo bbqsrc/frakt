@@ -18,21 +18,21 @@ use std::fmt;
 ///
 /// // Basic authentication
 /// let response = client
-///     .get("https://httpbin.org/basic-auth/user/pass")
+///     .get("https://httpbin.org/basic-auth/user/pass")?
 ///     .auth(Auth::basic("user", "pass"))
 ///     .send()
 ///     .await?;
 ///
 /// // Bearer token
 /// let response = client
-///     .get("https://api.example.com/protected")
+///     .get("https://api.example.com/protected")?
 ///     .auth(Auth::bearer("your-jwt-token"))
 ///     .send()
 ///     .await?;
 ///
 /// // Custom authentication
 /// let response = client
-///     .get("https://api.example.com/data")
+///     .get("https://api.example.com/data")?
 ///     .auth(Auth::custom("ApiKey", "your-api-key"))
 ///     .send()
 ///     .await?;

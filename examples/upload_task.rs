@@ -4,7 +4,6 @@
 //! with progress tracking.
 
 use rsurlsession::Client;
-use std::io::Write;
 use tokio;
 
 #[tokio::main]
@@ -31,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test 1: Upload from file with progress tracking
     println!("\n=== Testing file upload with progress ===");
     let response = client
-        .upload("https://httpbin.org/post")
+        .upload("https://httpbin.org/post")?
         .from_file(&temp_file)
         .header("Content-Type", "text/plain")?
         .progress(|bytes_uploaded, total_bytes| {
@@ -66,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let small_data = b"Small data upload test";
 
     let response2 = client
-        .upload("https://httpbin.org/post")
+        .upload("https://httpbin.org/post")?
         .from_data(small_data.to_vec())
         .header("Content-Type", "application/octet-stream")?
         .progress(|bytes_uploaded, total_bytes| {
