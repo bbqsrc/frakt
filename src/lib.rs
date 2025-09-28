@@ -27,14 +27,14 @@
 //!
 //! ```toml
 //! [dependencies]
-//! rsurlsession = "0.1"
+//! frakt = "0.1"
 //! tokio = { version = "1.0", features = ["full"] }
 //! ```
 //!
 //! ## Basic HTTP Request
 //!
 //! ```rust,no_run
-//! use rsurlsession::Client;
+//! use frakt::Client;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -57,7 +57,7 @@
 //! ## File Download with Progress
 //!
 //! ```rust,no_run
-//! use rsurlsession::Client;
+//! use frakt::Client;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -86,7 +86,7 @@
 //! ## File Upload
 //!
 //! ```rust,no_run
-//! use rsurlsession::Client;
+//! use frakt::Client;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -114,7 +114,7 @@
 //! ## WebSocket Connection
 //!
 //! ```rust,no_run
-//! use rsurlsession::{Client, Message, CloseCode};
+//! use frakt::{Client, Message, CloseCode};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -148,7 +148,7 @@
 //! - **Other platforms**: Uses resumable downloads with retry logic
 //!
 //! ```rust,no_run
-//! use rsurlsession::Client;
+//! use frakt::Client;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -176,7 +176,7 @@
 //! ## Client Configuration
 //!
 //! ```rust,no_run
-//! use rsurlsession::Client;
+//! use frakt::Client;
 //! use std::time::Duration;
 //!
 //! #[tokio::main]

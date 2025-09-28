@@ -1,6 +1,6 @@
 //! Example demonstrating proxy configuration with httpbin
 
-use rsurlsession::{Client, Result};
+use frakt::{Client, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
     // Example 5: No proxy (direct connection) - this should work
     println!("\n5. Testing direct connection (no proxy)...");
     let direct_client = Client::builder()
-        .user_agent("rsurlsession-proxy-example/1.0")
+        .user_agent("frakt-proxy-example/1.0")
         .build()?;
 
     match direct_client.get("https://httpbin.org/get")?.send().await {

@@ -49,7 +49,7 @@ impl BackgroundDownloadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -79,7 +79,7 @@ impl BackgroundDownloadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -120,7 +120,7 @@ impl BackgroundDownloadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -178,7 +178,7 @@ impl BackgroundDownloadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     ///

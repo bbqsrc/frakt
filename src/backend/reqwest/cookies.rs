@@ -109,8 +109,4 @@ impl ReqwestCookieStorage {
         // This is a limitation of the reqwest cookie jar API
     }
 
-    /// Get the underlying reqwest cookie jar
-    pub(crate) fn jar(&self) -> &reqwest::cookie::Jar {
-        &self.jar
-    }
 }

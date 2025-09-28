@@ -10,7 +10,7 @@ use std::fmt;
 /// # Examples
 ///
 /// ```rust,no_run
-/// use rsurlsession::{Client, Auth};
+/// use frakt::{Client, Auth};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -82,7 +82,7 @@ impl Auth {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::Auth;
+    /// use frakt::Auth;
     ///
     /// let auth = Auth::basic("john_doe", "secret123");
     /// ```
@@ -105,7 +105,7 @@ impl Auth {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::Auth;
+    /// use frakt::Auth;
     ///
     /// let auth = Auth::bearer("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...");
     /// ```
@@ -128,7 +128,7 @@ impl Auth {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::Auth;
+    /// use frakt::Auth;
     ///
     /// let auth = Auth::custom("ApiKey", "your-api-key-here");
     /// let auth = Auth::custom("Digest", "username=\"john\", realm=\"api\"");
@@ -149,7 +149,7 @@ impl Auth {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::Auth;
+    /// use frakt::Auth;
     ///
     /// let basic_auth = Auth::basic("user", "pass");
     /// assert_eq!(basic_auth.to_header_value(), "Basic dXNlcjpwYXNz");

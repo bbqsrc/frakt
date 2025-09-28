@@ -363,7 +363,7 @@ impl FoundationBackend {
         // Generate session identifier if not provided
         let session_id = session_identifier.unwrap_or_else(|| {
             format!(
-                "rsurlsession-bg-{}-{}",
+                "frakt-bg-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -465,7 +465,7 @@ fn generate_boundary() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    format!("----formdata-rsurlsession-{}", timestamp)
+    format!("----formdata-frakt-{}", timestamp)
 }
 
 #[cfg(feature = "multipart")]

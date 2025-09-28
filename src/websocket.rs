@@ -45,7 +45,7 @@ impl Message {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use rsurlsession::{Client, CloseCode};
+/// use frakt::{Client, CloseCode};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -122,7 +122,7 @@ pub enum CloseCode {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use rsurlsession::{Client, Message, CloseCode};
+/// use frakt::{Client, Message, CloseCode};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -152,6 +152,9 @@ pub enum WebSocket {
     /// Foundation backend using NSURLSessionWebSocketTask
     #[cfg(target_vendor = "apple")]
     Foundation(crate::backend::foundation::FoundationWebSocket),
+    /// Windows backend using MessageWebSocket
+    #[cfg(windows)]
+    Windows(crate::backend::windows::WindowsWebSocket),
     /// Reqwest backend using tokio-tungstenite
     Reqwest(crate::backend::reqwest::ReqwestWebSocket),
 }
@@ -170,7 +173,7 @@ impl WebSocket {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::{Client, Message};
+    /// use frakt::{Client, Message};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -192,6 +195,8 @@ impl WebSocket {
         match self {
             #[cfg(target_vendor = "apple")]
             WebSocket::Foundation(ws) => ws.send(message.into()).await,
+            #[cfg(windows)]
+            WebSocket::Windows(ws) => ws.send(message.into()).await,
             WebSocket::Reqwest(ws) => ws.send(message.into()).await,
         }
     }
@@ -208,7 +213,7 @@ impl WebSocket {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::{Client, Message};
+    /// use frakt::{Client, Message};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -231,6 +236,8 @@ impl WebSocket {
         match self {
             #[cfg(target_vendor = "apple")]
             WebSocket::Foundation(ws) => ws.receive().await,
+            #[cfg(windows)]
+            WebSocket::Windows(ws) => ws.receive().await,
             WebSocket::Reqwest(ws) => ws.receive().await,
         }
     }
@@ -248,7 +255,7 @@ impl WebSocket {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::{Client, CloseCode};
+    /// use frakt::{Client, CloseCode};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -267,6 +274,8 @@ impl WebSocket {
         match self {
             #[cfg(target_vendor = "apple")]
             WebSocket::Foundation(ws) => ws.close(code, reason).await,
+            #[cfg(windows)]
+            WebSocket::Windows(ws) => ws.close(code, reason).await,
             WebSocket::Reqwest(ws) => ws.close(code, reason).await,
         }
     }
@@ -279,7 +288,7 @@ impl WebSocket {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::{Client, CloseCode};
+    /// use frakt::{Client, CloseCode};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -299,6 +308,8 @@ impl WebSocket {
         match self {
             #[cfg(target_vendor = "apple")]
             WebSocket::Foundation(ws) => ws.close_code(),
+            #[cfg(windows)]
+            WebSocket::Windows(ws) => ws.close_code(),
             WebSocket::Reqwest(ws) => ws.close_code(),
         }
     }
@@ -311,7 +322,7 @@ impl WebSocket {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::{Client, CloseCode};
+    /// use frakt::{Client, CloseCode};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -328,6 +339,8 @@ impl WebSocket {
         match self {
             #[cfg(target_vendor = "apple")]
             WebSocket::Foundation(ws) => ws.close_reason(),
+            #[cfg(windows)]
+            WebSocket::Windows(ws) => ws.close_reason(),
             WebSocket::Reqwest(ws) => ws.close_reason(),
         }
     }
@@ -344,7 +357,7 @@ impl WebSocket {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::{Client, Message};
+    /// use frakt::{Client, Message};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -360,6 +373,8 @@ impl WebSocket {
         match self {
             #[cfg(target_vendor = "apple")]
             WebSocket::Foundation(ws) => ws.set_maximum_message_size(size),
+            #[cfg(windows)]
+            WebSocket::Windows(ws) => ws.set_maximum_message_size(size),
             WebSocket::Reqwest(ws) => ws.set_maximum_message_size(size),
         }
     }
@@ -372,7 +387,7 @@ impl WebSocket {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::{Client, Message};
+    /// use frakt::{Client, Message};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -388,6 +403,8 @@ impl WebSocket {
         match self {
             #[cfg(target_vendor = "apple")]
             WebSocket::Foundation(ws) => ws.maximum_message_size(),
+            #[cfg(windows)]
+            WebSocket::Windows(ws) => ws.maximum_message_size(),
             WebSocket::Reqwest(ws) => ws.maximum_message_size(),
         }
     }
@@ -402,7 +419,7 @@ impl WebSocket {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use rsurlsession::{Client, Message};
+/// use frakt::{Client, Message};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -419,6 +436,9 @@ pub enum WebSocketBuilder {
     /// Foundation backend using NSURLSession
     #[cfg(target_vendor = "apple")]
     Foundation(crate::backend::foundation::FoundationWebSocketBuilder),
+    /// Windows backend using MessageWebSocket
+    #[cfg(windows)]
+    Windows(crate::backend::windows::WindowsWebSocketBuilder),
     /// Reqwest backend using tokio-tungstenite
     Reqwest(crate::backend::reqwest::ReqwestWebSocketBuilder),
 }
@@ -436,7 +456,7 @@ impl WebSocketBuilder {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::{Client, Message};
+    /// use frakt::{Client, Message};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -454,6 +474,10 @@ impl WebSocketBuilder {
             #[cfg(target_vendor = "apple")]
             WebSocketBuilder::Foundation(builder) => {
                 WebSocketBuilder::Foundation(builder.maximum_message_size(size))
+            }
+            #[cfg(windows)]
+            WebSocketBuilder::Windows(builder) => {
+                WebSocketBuilder::Windows(builder.maximum_message_size(size))
             }
             WebSocketBuilder::Reqwest(builder) => {
                 WebSocketBuilder::Reqwest(builder.maximum_message_size(size))
@@ -473,7 +497,7 @@ impl WebSocketBuilder {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::{Client, Message};
+    /// use frakt::{Client, Message};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -494,6 +518,11 @@ impl WebSocketBuilder {
             WebSocketBuilder::Foundation(builder) => {
                 let ws = builder.connect(url).await?;
                 Ok(WebSocket::Foundation(ws))
+            }
+            #[cfg(windows)]
+            WebSocketBuilder::Windows(builder) => {
+                let ws = builder.connect(url).await?;
+                Ok(WebSocket::Windows(ws))
             }
             WebSocketBuilder::Reqwest(builder) => {
                 let ws = builder.connect(url).await?;

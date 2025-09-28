@@ -8,7 +8,7 @@ use url::Url;
 /// Generate a unique session identifier
 fn generate_session_id(prefix: &str) -> String {
     format!(
-        "rsurlsession-{}-{}-{}",
+        "frakt-{}-{}-{}",
         prefix,
         std::process::id(),
         std::time::SystemTime::now()
@@ -20,7 +20,7 @@ fn generate_session_id(prefix: &str) -> String {
 
 /// Create and return the state directory path
 fn ensure_state_dir() -> Result<PathBuf> {
-    let state_dir = std::env::temp_dir().join("rsurlsession");
+    let state_dir = std::env::temp_dir().join("frakt");
     std::fs::create_dir_all(&state_dir)
         .map_err(|e| Error::Internal(format!("Failed to create state directory: {}", e)))?;
     Ok(state_dir)
@@ -98,6 +98,78 @@ pub async fn execute_unix_background_download(
 
     // Monitor the state file for completion and call progress callback if provided
     monitor_background_download_with_progress(state_file, file_path, progress_callback).await
+}
+
+/// Monitor state file for completion with progress callback support
+async fn monitor_background_download_with_progress(
+    state_file: PathBuf,
+    file_path: PathBuf,
+    progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+) -> Result<crate::client::download::DownloadResponse> {
+    let start_time = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(300); // 5 minute timeout
+
+    loop {
+        if start_time.elapsed() > timeout {
+            return Err(Error::Internal("Background download timeout".to_string()));
+        }
+
+        if let Ok(state_content) = std::fs::read_to_string(&state_file) {
+            let mut status = None;
+            let mut bytes_downloaded = 0u64;
+            let mut error_msg = None;
+
+            for line in state_content.lines() {
+                if let Some((key, value)) = line.split_once(':') {
+                    match key {
+                        "status" => status = Some(value.to_string()),
+                        "bytes_downloaded" => {
+                            bytes_downloaded = value.parse().unwrap_or(0);
+                        }
+                        "error" => error_msg = Some(value.to_string()),
+                        _ => {}
+                    }
+                }
+            }
+
+            // Call progress callback if we have one and we're downloading
+            if let (Some(callback), Some("downloading")) = (&progress_callback, status.as_deref()) {
+                // For Unix daemon downloads, we don't know the total size easily,
+                // so we'll pass None for total_bytes
+                callback(bytes_downloaded, None);
+            }
+
+            match status.as_deref() {
+                Some("completed") => {
+                    // Call final progress callback if provided
+                    if let Some(callback) = &progress_callback {
+                        callback(bytes_downloaded, Some(bytes_downloaded));
+                    }
+
+                    // Clean up state file
+                    let _ = std::fs::remove_file(&state_file);
+
+                    return Ok(crate::client::download::DownloadResponse {
+                        file_path,
+                        bytes_downloaded,
+                    });
+                }
+                Some("failed") => {
+                    // Clean up state file
+                    let _ = std::fs::remove_file(&state_file);
+
+                    return Err(Error::Internal(
+                        error_msg.unwrap_or_else(|| "Download failed".to_string()),
+                    ));
+                }
+                _ => {
+                    // Still downloading or unknown status
+                }
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
 }
 
 /// Execute background download on non-Unix platforms using resumable downloads
@@ -255,6 +327,75 @@ fn run_daemon_download(
     });
 }
 
+/// Attempt download with resume capability
+#[cfg(not(unix))]
+async fn try_download_with_resume(
+    client: &reqwest::Client,
+    url: &Url,
+    file_path: &std::path::Path,
+    start_byte: u64,
+    progress_callback: Option<&(dyn Fn(u64, Option<u64>) + Send + Sync)>,
+) -> Result<u64> {
+    // Create request with Range header for resume if needed
+    let mut request_builder = client.get(url.clone());
+    if start_byte > 0 {
+        request_builder = request_builder.header("Range", format!("bytes={}-", start_byte));
+    }
+
+    // Send the request
+    let response = request_builder
+        .send()
+        .await
+        .map_err(|e| Error::Internal(format!("Request failed: {}", e)))?;
+
+    // Check status
+    if !response.status().is_success() && response.status() != 206 {
+        if response.status() == 416 && start_byte > 0 {
+            // Range not satisfiable - file is already complete
+            return Ok(start_byte);
+        }
+        return Err(Error::Internal(format!("HTTP error: {}", response.status())));
+    }
+
+    // Get total size if available
+    let total_size = response.content_length().map(|len| len + start_byte);
+
+    // Open file for writing (append if resuming)
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(start_byte > 0)
+        .write(true)
+        .truncate(start_byte == 0)
+        .open(file_path)
+        .map_err(|e| Error::Internal(format!("Failed to open file: {}", e)))?;
+
+    // Stream the response body
+    let mut stream = response.bytes_stream();
+    let mut bytes_downloaded = start_byte;
+
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result
+            .map_err(|e| Error::Internal(format!("Stream error: {}", e)))?;
+
+        // Write chunk to file
+        std::io::Write::write_all(&mut file, &chunk)
+            .map_err(|e| Error::Internal(format!("Failed to write to file: {}", e)))?;
+
+        bytes_downloaded += chunk.len() as u64;
+
+        // Call progress callback if provided
+        if let Some(callback) = progress_callback {
+            callback(bytes_downloaded, total_size);
+        }
+    }
+
+    // Ensure file is flushed
+    std::io::Write::flush(&mut file)
+        .map_err(|e| Error::Internal(format!("Failed to flush file: {}", e)))?;
+
+    Ok(bytes_downloaded)
+}
+
 /// Async download logic for daemon process
 async fn daemon_download_async(
     url: Url,
@@ -337,149 +478,3 @@ async fn daemon_download_async(
     Ok(())
 }
 
-/// Monitor state file for completion
-async fn monitor_background_download(
-    state_file: PathBuf,
-    file_path: PathBuf,
-) -> Result<crate::client::download::DownloadResponse> {
-    monitor_background_download_with_progress(state_file, file_path, None).await
-}
-
-/// Monitor state file for completion with progress callback support
-async fn monitor_background_download_with_progress(
-    state_file: PathBuf,
-    file_path: PathBuf,
-    progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
-) -> Result<crate::client::download::DownloadResponse> {
-    let start_time = std::time::Instant::now();
-    let timeout = std::time::Duration::from_secs(300); // 5 minute timeout
-
-    loop {
-        if start_time.elapsed() > timeout {
-            return Err(Error::Internal("Background download timeout".to_string()));
-        }
-
-        if let Ok(state_content) = std::fs::read_to_string(&state_file) {
-            let mut status = None;
-            let mut bytes_downloaded = 0u64;
-            let mut error_msg = None;
-
-            for line in state_content.lines() {
-                if let Some((key, value)) = line.split_once(':') {
-                    match key {
-                        "status" => status = Some(value.to_string()),
-                        "bytes_downloaded" => {
-                            bytes_downloaded = value.parse().unwrap_or(0);
-                        }
-                        "error" => error_msg = Some(value.to_string()),
-                        _ => {}
-                    }
-                }
-            }
-
-            // Call progress callback if we have one and we're downloading
-            if let (Some(callback), Some("downloading")) = (&progress_callback, status.as_deref()) {
-                // For Unix daemon downloads, we don't know the total size easily,
-                // so we'll pass None for total_bytes
-                callback(bytes_downloaded, None);
-            }
-
-            match status.as_deref() {
-                Some("completed") => {
-                    // Call final progress callback if provided
-                    if let Some(callback) = &progress_callback {
-                        callback(bytes_downloaded, Some(bytes_downloaded));
-                    }
-
-                    // Clean up state file
-                    let _ = std::fs::remove_file(&state_file);
-
-                    return Ok(crate::client::download::DownloadResponse {
-                        file_path,
-                        bytes_downloaded,
-                    });
-                }
-                Some("failed") => {
-                    // Clean up state file
-                    let _ = std::fs::remove_file(&state_file);
-
-                    return Err(Error::Internal(
-                        error_msg.unwrap_or_else(|| "Download failed".to_string()),
-                    ));
-                }
-                _ => {
-                    // Still downloading or unknown status
-                }
-            }
-        }
-
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    }
-}
-
-/// Try to download with resume support
-async fn try_download_with_resume(
-    client: &reqwest::Client,
-    url: &str,
-    file_path: &std::path::Path,
-    initial_bytes: u64,
-    progress_callback: Option<&dyn Fn(u64, Option<u64>)>,
-) -> Result<u64> {
-    use tokio::io::AsyncWriteExt;
-
-    // Create request with Range header if resuming
-    let mut request_builder = client.get(url);
-    if initial_bytes > 0 {
-        request_builder = request_builder.header("Range", format!("bytes={}-", initial_bytes));
-    }
-
-    let response = request_builder
-        .send()
-        .await
-        .map_err(|e| Error::Internal(format!("Request failed: {}", e)))?;
-
-    // Get total bytes for progress tracking
-    let total_bytes = response
-        .headers()
-        .get("content-length")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<u64>().ok())
-        .map(|content_length| content_length + initial_bytes); // Add initial bytes for resumed downloads
-
-    // Open file for appending (or create if doesn't exist)
-    let mut file = if initial_bytes > 0 {
-        tokio::fs::OpenOptions::new()
-            .append(true)
-            .open(file_path)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to open file for appending: {}", e)))?
-    } else {
-        tokio::fs::File::create(file_path)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to create file: {}", e)))?
-    };
-
-    let mut stream = response.bytes_stream();
-    let mut bytes_written = initial_bytes;
-
-    while let Some(chunk_result) = stream.next().await {
-        let chunk = chunk_result.map_err(|e| Error::Internal(format!("Stream error: {}", e)))?;
-
-        file.write_all(&chunk)
-            .await
-            .map_err(|e| Error::Internal(format!("Failed to write to file: {}", e)))?;
-
-        bytes_written += chunk.len() as u64;
-
-        // Call progress callback if provided
-        if let Some(callback) = progress_callback {
-            callback(bytes_written, total_bytes);
-        }
-    }
-
-    file.flush()
-        .await
-        .map_err(|e| Error::Internal(format!("Failed to flush file: {}", e)))?;
-
-    Ok(bytes_written)
-}

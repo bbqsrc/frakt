@@ -3,7 +3,7 @@
 //! This example demonstrates how to use NSURLSessionUploadTask for efficient file uploads
 //! with progress tracking.
 
-use rsurlsession::Client;
+use frakt::Client;
 use tokio;
 
 #[tokio::main]
@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Write test data to a temporary file
     let mut temp_file = std::env::temp_dir();
-    temp_file.push("rsurlsession_upload_test.txt");
+    temp_file.push("frakt_upload_test.txt");
 
     std::fs::write(&temp_file, &test_data)?;
     println!(

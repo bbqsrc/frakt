@@ -3,7 +3,7 @@
 //! This example demonstrates different authentication methods supported by the library
 //! using httpbin's authentication endpoints.
 
-use rsurlsession::{Auth, Client};
+use frakt::{Auth, Client};
 use tokio;
 
 #[tokio::main]

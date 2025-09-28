@@ -5,10 +5,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use arc_swap::ArcSwapOption;
 use objc2::rc::Retained;
+use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_foundation::{NSError, NSURL};
 use tokio::sync::Mutex;
 
-use super::GenericWaker;
+use super::generic_waker::GenericWaker;
 
 /// Progress callback function type
 pub type ProgressCallback = dyn Fn(u64, Option<u64>) + Send + Sync;
@@ -24,7 +25,6 @@ pub struct DownloadContext {
 }
 
 impl DownloadContext {
-    /// Create a new download context
     pub fn new(destination_path: Option<std::path::PathBuf>) -> Self {
         Self {
             destination_path,
@@ -33,12 +33,10 @@ impl DownloadContext {
         }
     }
 
-    /// Set the temporary download location
     pub fn set_download_location(&self, location: Retained<NSURL>) {
         self.download_location.store(Some(Arc::new(location)));
     }
 
-    /// Set the final file location
     pub fn set_final_location(&self, path: std::path::PathBuf) {
         self.final_location.store(Some(Arc::new(path)));
     }
@@ -198,7 +196,6 @@ impl TaskSharedContext {
 
     /// Set error from string message
     pub fn set_error_from_string(&self, message: String) {
-        use objc2::runtime::{AnyObject, ProtocolObject};
         use objc2_foundation::{NSMutableDictionary, NSString};
 
         // Create a simple NSError for the message

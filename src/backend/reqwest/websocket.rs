@@ -10,30 +10,6 @@ use tokio_tungstenite::{
     tungstenite::{self, protocol::CloseFrame},
 };
 
-impl Message {
-    /// Convert to tokio-tungstenite message
-    pub(crate) fn to_tungstenite_message(&self) -> tungstenite::Message {
-        match self {
-            Message::Text(text) => tungstenite::Message::Text(text.clone()),
-            Message::Binary(data) => tungstenite::Message::Binary(data.clone()),
-        }
-    }
-
-    /// Create from tokio-tungstenite message
-    pub(crate) fn from_tungstenite_message(msg: tungstenite::Message) -> Result<Self> {
-        match msg {
-            tungstenite::Message::Text(text) => Ok(Message::Text(text)),
-            tungstenite::Message::Binary(data) => Ok(Message::Binary(data)),
-            tungstenite::Message::Close(_) => Err(Error::WebSocketClosed),
-            tungstenite::Message::Ping(_) | tungstenite::Message::Pong(_) => {
-                Err(Error::Internal("Received ping/pong frame".to_string()))
-            }
-            tungstenite::Message::Frame(_) => {
-                Err(Error::Internal("Received raw frame".to_string()))
-            }
-        }
-    }
-}
 
 /// Reqwest WebSocket implementation
 pub struct ReqwestWebSocket {
@@ -68,10 +44,9 @@ impl ReqwestWebSocket {
         use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
         let config = if let Some(size) = max_message_size {
-            Some(WebSocketConfig {
-                max_message_size: Some(size as usize),
-                ..WebSocketConfig::default()
-            })
+            let mut config = WebSocketConfig::default();
+            config.max_message_size = Some(size as usize);
+            Some(config)
         } else {
             None
         };
@@ -108,8 +83,8 @@ impl ReqwestWebSocket {
         }
 
         let tungstenite_message = match message {
-            Message::Text(text) => tungstenite::Message::Text(text),
-            Message::Binary(data) => tungstenite::Message::Binary(data),
+            Message::Text(text) => tungstenite::Message::Text(text.into()),
+            Message::Binary(data) => tungstenite::Message::Binary(data.into()),
         };
 
         self.stream
@@ -132,10 +107,10 @@ impl ReqwestWebSocket {
         loop {
             match self.stream.next().await {
                 Some(Ok(tungstenite::Message::Text(text))) => {
-                    return Ok(Message::Text(text));
+                    return Ok(Message::Text(text.to_string()));
                 }
                 Some(Ok(tungstenite::Message::Binary(data))) => {
-                    return Ok(Message::Binary(data));
+                    return Ok(Message::Binary(data.to_vec()));
                 }
                 Some(Ok(tungstenite::Message::Close(_))) => {
                     self.closed = true;

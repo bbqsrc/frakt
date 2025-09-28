@@ -29,7 +29,7 @@ pub struct BackgroundSessionDelegateIvars {
 define_class!(
     /// NSURLSessionDelegate implementation for background sessions
     #[unsafe(super = NSObject)]
-    #[name = "RsUrlSessionBackgroundSessionDelegate"]
+    #[name = "fraktBackgroundSessionDelegate"]
     #[ivars = BackgroundSessionDelegateIvars]
     pub struct BackgroundSessionDelegate;
 

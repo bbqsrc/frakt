@@ -10,7 +10,7 @@ use crate::{Result, backend::CookieStorage};
 /// # Examples
 ///
 /// ```rust
-/// use rsurlsession::{Client, CookieAcceptPolicy};
+/// use frakt::{Client, CookieAcceptPolicy};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -50,7 +50,7 @@ pub enum CookieAcceptPolicy {
 /// # Examples
 ///
 /// ```rust
-/// use rsurlsession::{Client, CookieJar, Cookie};
+/// use frakt::{Client, CookieJar, Cookie};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -89,7 +89,7 @@ impl CookieJar {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::CookieJar;
+    /// use frakt::CookieJar;
     ///
     /// # fn main() {
     /// let jar = CookieJar::new();
@@ -114,7 +114,7 @@ impl CookieJar {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::CookieJar;
+    /// use frakt::CookieJar;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// # #[cfg(target_vendor = "apple")]
@@ -137,7 +137,7 @@ impl CookieJar {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::{Client, Cookie};
+    /// use frakt::{Client, Cookie};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -168,7 +168,7 @@ impl CookieJar {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::{Client, Cookie};
+    /// use frakt::{Client, Cookie};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -197,7 +197,7 @@ impl CookieJar {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::{Client, Cookie};
+    /// use frakt::{Client, Cookie};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -229,7 +229,7 @@ impl CookieJar {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::{Client, Cookie};
+    /// use frakt::{Client, Cookie};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -256,7 +256,7 @@ impl CookieJar {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::Client;
+    /// use frakt::Client;
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -286,7 +286,7 @@ impl CookieJar {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::{Client, CookieAcceptPolicy};
+    /// use frakt::{Client, CookieAcceptPolicy};
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -319,7 +319,7 @@ impl Default for CookieJar {
 /// # Examples
 ///
 /// ```rust
-/// use rsurlsession::Cookie;
+/// use frakt::Cookie;
 ///
 /// // Create a simple session cookie
 /// let session_cookie = Cookie::new("session_id", "abc123")
@@ -365,7 +365,7 @@ impl Cookie {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::Cookie;
+    /// use frakt::Cookie;
     ///
     /// let cookie = Cookie::new("session_id", "abc123");
     /// assert_eq!(cookie.name, "session_id");
@@ -396,7 +396,7 @@ impl Cookie {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::Cookie;
+    /// use frakt::Cookie;
     ///
     /// let cookie = Cookie::new("session", "abc123")
     ///     .domain("example.com");
@@ -418,7 +418,7 @@ impl Cookie {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::Cookie;
+    /// use frakt::Cookie;
     ///
     /// let cookie = Cookie::new("api_token", "token123")
     ///     .path("/api");
@@ -440,7 +440,7 @@ impl Cookie {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::Cookie;
+    /// use frakt::Cookie;
     ///
     /// let cookie = Cookie::new("auth", "sensitive_token")
     ///     .secure(true);
@@ -462,7 +462,7 @@ impl Cookie {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::Cookie;
+    /// use frakt::Cookie;
     ///
     /// let cookie = Cookie::new("session", "abc123")
     ///     .http_only(true);
@@ -484,7 +484,7 @@ impl Cookie {
     /// # Examples
     ///
     /// ```rust
-    /// use rsurlsession::Cookie;
+    /// use frakt::Cookie;
     ///
     /// let cookie = Cookie::new("remember_me", "true")
     ///     .expires("Wed, 09 Jun 2024 10:18:14 GMT");

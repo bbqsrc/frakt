@@ -180,9 +180,4 @@ impl FoundationCookieStorage {
             self.storage.setCookieAcceptPolicy(ns_policy);
         }
     }
-
-    /// Get the underlying NSHTTPCookieStorage
-    pub(crate) fn storage(&self) -> &NSHTTPCookieStorage {
-        &self.storage
-    }
 }

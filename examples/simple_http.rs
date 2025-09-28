@@ -1,6 +1,6 @@
 //! Simple HTTP example to test basic functionality
 
-use rsurlsession::Client;
+use frakt::Client;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -8,7 +8,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test client builder with basic configuration
     let client = Client::builder()
-        .user_agent("rsurlsession-test/1.0")
+        .user_agent("frakt-test/1.0")
         .header("X-Test-Header", "test-value")?
         .timeout(std::time::Duration::from_secs(10))
         .build()?;

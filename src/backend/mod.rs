@@ -5,6 +5,9 @@ pub mod types;
 #[cfg(target_vendor = "apple")]
 pub mod foundation;
 
+#[cfg(windows)]
+pub mod windows;
+
 pub mod reqwest;
 
 use crate::{
@@ -45,6 +48,10 @@ pub enum Backend {
     #[cfg(target_vendor = "apple")]
     Foundation(foundation::FoundationBackend),
 
+    /// Native Windows implementation using WinRT HTTP
+    #[cfg(windows)]
+    Windows(windows::WindowsBackend),
+
     /// Cross-platform implementation using reqwest
     Reqwest(reqwest::ReqwestBackend),
 }
@@ -58,7 +65,13 @@ impl Backend {
             Ok(Backend::Foundation(foundation::FoundationBackend::new()?))
         }
 
-        #[cfg(not(target_vendor = "apple"))]
+        #[cfg(all(windows, not(target_vendor = "apple")))]
+        {
+            // Default to Windows on Windows platforms
+            Ok(Backend::Windows(windows::WindowsBackend::new()?))
+        }
+
+        #[cfg(not(any(target_vendor = "apple", windows)))]
         {
             // Use reqwest everywhere else
             Ok(Backend::Reqwest(reqwest::ReqwestBackend::new()?))
@@ -84,6 +97,20 @@ impl Backend {
         ))
     }
 
+    /// Use Windows backend (Windows only)
+    #[cfg(windows)]
+    pub fn windows() -> Result<Self> {
+        Ok(Backend::Windows(windows::WindowsBackend::new()?))
+    }
+
+    /// Use Windows backend with configuration (Windows only)
+    #[cfg(windows)]
+    pub fn windows_with_config(config: BackendConfig) -> Result<Self> {
+        Ok(Backend::Windows(
+            windows::WindowsBackend::with_config(config)?,
+        ))
+    }
+
     /// Use reqwest backend with configuration
     pub fn reqwest_with_config(config: BackendConfig) -> Result<Self> {
         Ok(Backend::Reqwest(reqwest::ReqwestBackend::with_config(
@@ -96,6 +123,9 @@ impl Backend {
         match self {
             #[cfg(target_vendor = "apple")]
             Backend::Foundation(f) => f.execute(request).await,
+
+            #[cfg(windows)]
+            Backend::Windows(w) => w.execute(request).await,
 
             Backend::Reqwest(r) => r.execute(request).await,
         }
@@ -116,6 +146,12 @@ impl Backend {
                     .await
             }
 
+            #[cfg(windows)]
+            Backend::Windows(w) => {
+                w.execute_background_download(url, file_path, session_identifier, progress_callback)
+                    .await
+            }
+
             Backend::Reqwest(r) => {
                 r.execute_background_download(url, file_path, session_identifier, progress_callback)
                     .await
@@ -128,6 +164,9 @@ impl Backend {
         match self {
             #[cfg(target_vendor = "apple")]
             Backend::Foundation(f) => f.cookie_jar(),
+
+            #[cfg(windows)]
+            Backend::Windows(w) => w.cookie_jar(),
 
             Backend::Reqwest(r) => r.cookie_jar(),
         }
@@ -155,7 +194,7 @@ impl CookieStorage {
 
         #[cfg(not(target_vendor = "apple"))]
         {
-            Ok(CookieStorage::Reqwest(reqwest::ReqwestCookieStorage::new()?))
+            CookieStorage::Reqwest(reqwest::ReqwestCookieStorage::new())
         }
     }
 

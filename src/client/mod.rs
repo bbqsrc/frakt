@@ -53,7 +53,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client.get("https://httpbin.org/get")?.send().await?;
@@ -75,7 +75,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # use std::time::Duration;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::builder()
@@ -102,7 +102,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -133,7 +133,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let json_data = r#"{"name": "John", "age": 30}"#;
@@ -166,7 +166,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let json_data = r#"{"name": "Jane", "age": 25}"#;
@@ -199,7 +199,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -233,7 +233,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -270,7 +270,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let patch_data = r#"{"age": 31}"#;
@@ -307,7 +307,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -347,7 +347,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -388,7 +388,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -423,7 +423,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::{Client, Message};
+    /// # use frakt::{Client, Message};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let mut websocket = client
@@ -441,7 +441,7 @@ impl Client {
     ///     Message::Binary(data) => println!("Received {} bytes", data.len()),
     /// }
     ///
-    /// websocket.close(rsurlsession::CloseCode::Normal, None).await?;
+    /// websocket.close(frakt::CloseCode::Normal, None).await?;
     /// # Ok(())
     /// # }
     /// ```
@@ -455,6 +455,11 @@ impl Client {
                         foundation_backend.session().clone(),
                     ),
                 )
+            }
+            #[cfg(windows)]
+            Backend::Windows(_) => {
+                // TODO: Implement Windows WebSocket support
+                todo!()
             }
             Backend::Reqwest(_) => {
                 // Use Reqwest backend for WebSocket with tokio-tungstenite
@@ -479,7 +484,7 @@ impl Client {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::builder()
     ///     .use_cookies(true)
@@ -527,6 +532,9 @@ pub enum BackendType {
     Foundation,
     /// Reqwest backend (all platforms)
     Reqwest,
+    /// Windows backend (Windows only)
+    #[cfg(windows)]
+    Windows,
 }
 
 impl ClientBuilder {
@@ -653,6 +661,8 @@ impl ClientBuilder {
             Some(BackendType::Reqwest) => Backend::reqwest_with_config(self.config)?,
             #[cfg(target_vendor = "apple")]
             Some(BackendType::Foundation) => Backend::foundation_with_config(self.config)?,
+            #[cfg(windows)]
+            Some(BackendType::Windows) => Backend::windows_with_config(self.config)?,
             None => {
                 // Auto-select with config
                 #[cfg(target_vendor = "apple")]

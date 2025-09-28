@@ -1,11 +1,11 @@
 //! Debug WebSocket connection issue
 
-use rsurlsession::{BackendType, Client};
+use frakt::{BackendType, Client};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Creating Foundation client...");
-    let client = Client::builder().backend(BackendType::Foundation).build()?;
+    let client = Client::builder().build()?;
 
     println!("Attempting WebSocket connection...");
 
@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("✅ WebSocket connected successfully!");
 
             println!("Sending a test message...");
-            match websocket.send(rsurlsession::Message::text("Hello")).await {
+            match websocket.send(frakt::Message::text("Hello")).await {
                 Ok(_) => println!("✅ Message sent successfully!"),
                 Err(e) => println!("❌ Failed to send message: {:?}", e),
             }

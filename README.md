@@ -1,9 +1,9 @@
-# rsurlsession
+# frakt
 
 High-performance, async-first NSURLSession bindings for Rust. Native macOS/iOS HTTP client with zero-overhead Objective-C interop.
 
-[![Crates.io](https://img.shields.io/crates/v/rsurlsession.svg)](https://crates.io/crates/rsurlsession)
-[![Documentation](https://docs.rs/rsurlsession/badge.svg)](https://docs.rs/rsurlsession)
+[![Crates.io](https://img.shields.io/crates/v/frakt.svg)](https://crates.io/crates/frakt)
+[![Documentation](https://docs.rs/frakt/badge.svg)](https://docs.rs/frakt)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
 
 ## Features
@@ -27,7 +27,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rsurlsession = "0.1"
+frakt = "0.1"
 ```
 
 ## Platform Support
@@ -41,7 +41,7 @@ Only Apple platforms are supported as this library provides direct NSURLSession 
 ## Quick Start
 
 ```rust
-use rsurlsession::Client;
+use frakt::Client;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -86,7 +86,7 @@ let response = client
 ### Authentication
 
 ```rust
-use rsurlsession::Auth;
+use frakt::Auth;
 
 // Basic authentication
 let response = client
@@ -136,7 +136,7 @@ client
 ### WebSocket
 
 ```rust
-use rsurlsession::{Message, CloseCode};
+use frakt::{Message, CloseCode};
 
 let websocket = client
     .websocket()
@@ -227,7 +227,7 @@ This library provides direct Rust bindings to NSURLSession using [objc2](https:/
 All NSURLSession errors are mapped to Rust's `Result` type:
 
 ```rust
-use rsurlsession::Error;
+use frakt::Error;
 
 match client.get("https://invalid-url").send().await {
     Ok(response) => println!("Success: {}", response.status()),
@@ -240,7 +240,7 @@ match client.get("https://invalid-url").send().await {
 
 ## Performance
 
-rsurlsession leverages NSURLSession's native performance optimizations:
+frakt leverages NSURLSession's native performance optimizations:
 
 - **HTTP/2 and HTTP/3** support (when available)
 - **Connection pooling** and keep-alive

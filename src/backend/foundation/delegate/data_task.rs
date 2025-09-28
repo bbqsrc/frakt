@@ -28,7 +28,7 @@ pub struct DataTaskDelegateIvars {
 define_class!(
     /// NSURLSessionDataDelegate implementation
     #[unsafe(super = NSObject)]
-    #[name = "RsUrlSessionDataTaskDelegate"]
+    #[name = "fraktDataTaskDelegate"]
     #[ivars = DataTaskDelegateIvars]
     pub struct DataTaskDelegate;
 

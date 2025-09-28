@@ -1,6 +1,6 @@
 //! Multipart form data example
 
-use rsurlsession::{Body, Client, MultipartPart};
+use frakt::{Body, Client, MultipartPart};
 use std::time::Duration;
 
 #[tokio::main]
@@ -10,7 +10,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a client with a 30 second timeout
     let client = Client::builder()
         .timeout(Duration::from_secs(30))
-        .user_agent("rsurlsession/0.1.0")
+        .user_agent("frakt/0.1.0")
         .build()?;
 
     println!("Creating multipart form data...");

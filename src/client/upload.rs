@@ -16,7 +16,7 @@ use url::Url;
 /// ## Upload a file
 ///
 /// ```no_run
-/// # use rsurlsession::Client;
+/// # use frakt::Client;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
 /// let response = client
@@ -36,7 +36,7 @@ use url::Url;
 /// ## Upload data with authentication
 ///
 /// ```no_run
-/// # use rsurlsession::{Client, Auth};
+/// # use frakt::{Client, Auth};
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
 /// let data = serde_json::to_vec(&serde_json::json!({
@@ -88,7 +88,7 @@ impl UploadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -134,7 +134,7 @@ impl UploadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let data = b"Hello, world!".to_vec();
@@ -175,7 +175,7 @@ impl UploadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -213,7 +213,7 @@ impl UploadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -260,7 +260,7 @@ impl UploadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::{Client, Auth};
+    /// # use frakt::{Client, Auth};
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     ///
@@ -310,7 +310,7 @@ impl UploadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client

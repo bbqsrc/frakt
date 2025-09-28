@@ -41,7 +41,7 @@ pub struct WebSocketDelegateIvars {
 define_class!(
     #[allow(missing_docs)]
     #[unsafe(super = NSObject)]
-    #[name = "RsUrlSessionWebSocketDelegate"]
+    #[name = "fraktWebSocketDelegate"]
     #[ivars = WebSocketDelegateIvars]
     pub struct WebSocketDelegate;
 
@@ -54,7 +54,7 @@ define_class!(
         fn URLSession_task_didCompleteWithError(
             &self,
             _session: &NSURLSession,
-            task: &NSURLSessionTask,
+            _task: &NSURLSessionTask,
             error: Option<&NSError>,
         ) {
             tracing::debug!(
@@ -109,7 +109,7 @@ define_class!(
         #[unsafe(method(URLSession:task:didReceiveChallenge:completionHandler:))]
         fn URLSession_task_didReceiveChallenge_completionHandler(
             &self,
-            session: &NSURLSession,
+            _session: &NSURLSession,
             _task: &NSURLSessionTask,
             challenge: &NSURLAuthenticationChallenge,
             completion_handler: &DynBlock<
@@ -134,9 +134,6 @@ define_class!(
                     tracing::debug!(
                         "WebSocketDelegate::URLSession_task_didReceiveChallenge_completionHandler - Server trust challenge"
                     );
-
-                    // Check if we should ignore certificate errors from session config
-                    let _config = session.configuration();
 
                     // For now, we'll use the default handling which respects the session configuration
                     // In the future, this could be expanded to allow custom certificate validation

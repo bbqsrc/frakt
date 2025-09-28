@@ -11,59 +11,6 @@ use objc2_foundation::{
 };
 use tokio::sync::oneshot;
 
-impl Message {
-    /// Convert to NSURLSessionWebSocketMessage
-    pub(crate) fn to_ns_message(&self) -> Result<Retained<NSURLSessionWebSocketMessage>> {
-        unsafe {
-            match self {
-                Message::Text(text) => {
-                    let ns_string = NSString::from_str(text);
-                    Ok(NSURLSessionWebSocketMessage::initWithString(
-                        NSURLSessionWebSocketMessage::alloc(),
-                        &ns_string,
-                    ))
-                }
-                Message::Binary(data) => {
-                    let ns_data = NSData::from_vec(data.clone());
-                    Ok(NSURLSessionWebSocketMessage::initWithData(
-                        NSURLSessionWebSocketMessage::alloc(),
-                        &ns_data,
-                    ))
-                }
-            }
-        }
-    }
-
-    /// Create from NSURLSessionWebSocketMessage
-    pub(crate) fn from_ns_message(ns_message: &NSURLSessionWebSocketMessage) -> Result<Self> {
-        unsafe {
-            let message_type = ns_message.r#type();
-
-            if message_type == NSURLSessionWebSocketMessageType::String {
-                if let Some(string) = ns_message.string() {
-                    Ok(Message::Text(string.to_string()))
-                } else {
-                    Err(Error::Internal(
-                        "WebSocket string message had no string content".to_string(),
-                    ))
-                }
-            } else if message_type == NSURLSessionWebSocketMessageType::Data {
-                if let Some(data) = ns_message.data() {
-                    Ok(Message::Binary(data.to_vec()))
-                } else {
-                    Err(Error::Internal(
-                        "WebSocket data message had no data content".to_string(),
-                    ))
-                }
-            } else {
-                Err(Error::Internal(format!(
-                    "Unknown WebSocket message type: {:?}",
-                    message_type
-                )))
-            }
-        }
-    }
-}
 
 impl From<CloseCode> for NSURLSessionWebSocketCloseCode {
     fn from(code: CloseCode) -> Self {

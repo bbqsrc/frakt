@@ -1,13 +1,16 @@
-//! Integration tests for rsurlsession
+//! Integration tests for frakt
 
 use std::time::Duration;
 
-use rsurlsession::{BackendType, Client, Result, backend};
+use frakt::{BackendType, Client, Result, backend};
 
 fn backend() -> BackendType {
     match std::env::var("BACKEND").as_deref() {
+        #[cfg(target_vendor = "apple")]
         Ok("foundation") => BackendType::Foundation,
         Ok("reqwest") => BackendType::Reqwest,
+        #[cfg(windows)]
+        Ok("windows") => BackendType::Windows,
         Ok(x) => panic!("Unknown BACKEND env var value: {:?}", x),
         Err(_) => panic!("Please set BACKEND env var to either 'foundation' or 'reqwest'"),
     }
@@ -18,7 +21,7 @@ async fn test_basic_get_request() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     let response = client.get("https://httpbin.org/get")?.send().await?;
@@ -35,7 +38,7 @@ async fn test_basic_get_request() -> Result<()> {
 async fn test_post_with_json() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     let json_data = r#"{"test": "data", "number": 42}"#;
@@ -65,7 +68,7 @@ async fn test_post_with_json() -> Result<()> {
 async fn test_headers() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .header("X-Custom-Header", "test-value")?
         .build()?;
 
@@ -90,12 +93,12 @@ async fn test_headers() -> Result<()> {
 async fn test_basic_auth() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     let response = client
         .get("https://httpbin.org/basic-auth/testuser/testpass")?
-        .auth(rsurlsession::Auth::Basic {
+        .auth(frakt::Auth::Basic {
             username: "testuser".to_string(),
             password: "testpass".to_string(),
         })
@@ -114,12 +117,12 @@ async fn test_basic_auth() -> Result<()> {
 async fn test_bearer_auth() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     let response = client
         .get("https://httpbin.org/bearer")?
-        .auth(rsurlsession::Auth::Bearer {
+        .auth(frakt::Auth::Bearer {
             token: "test-token".to_string(),
         })
         .send()
@@ -138,7 +141,7 @@ async fn test_bearer_auth() -> Result<()> {
 async fn test_cookie_jar() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .use_cookies(true)
         .build()?;
 
@@ -164,7 +167,7 @@ async fn test_cookie_jar() -> Result<()> {
 async fn test_download_file() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     let temp_dir = std::env::temp_dir();
@@ -199,7 +202,7 @@ async fn test_timeout() -> Result<()> {
 
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .timeout(Duration::from_millis(100)) // Very short timeout
         .build()?;
 
@@ -219,7 +222,7 @@ async fn test_timeout() -> Result<()> {
 async fn test_error_status_codes() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     let response = client.get("https://httpbin.org/status/404")?.send().await?;
@@ -233,7 +236,7 @@ async fn test_error_status_codes() -> Result<()> {
 async fn test_response_headers() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     let response = client.get("https://httpbin.org/json")?.send().await?;
@@ -268,7 +271,7 @@ async fn test_websocket_connection() -> Result<()> {
 
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     println!("test_websocket_connection - Created client, connecting to WebSocket...");
@@ -284,7 +287,7 @@ async fn test_websocket_connection() -> Result<()> {
     // Send a text message
     println!("test_websocket_connection - Sending text message...");
     websocket
-        .send(rsurlsession::Message::text("Hello WebSocket!"))
+        .send(frakt::Message::text("Hello WebSocket!"))
         .await?;
     println!("test_websocket_connection - Text message sent successfully");
 
@@ -293,7 +296,7 @@ async fn test_websocket_connection() -> Result<()> {
     let message = websocket.receive().await?;
     println!("test_websocket_connection - Received message");
     match message {
-        rsurlsession::Message::Text(text) => {
+        frakt::Message::Text(text) => {
             println!("test_websocket_connection - Received text: {}", text);
             assert_eq!(text, "Hello WebSocket!");
         }
@@ -303,7 +306,7 @@ async fn test_websocket_connection() -> Result<()> {
     // Send another text message to test multi-message flow
     println!("test_websocket_connection - Sending second text message...");
     websocket
-        .send(rsurlsession::Message::text("Second message!"))
+        .send(frakt::Message::text("Second message!"))
         .await?;
     println!("test_websocket_connection - Second text message sent successfully");
 
@@ -312,7 +315,7 @@ async fn test_websocket_connection() -> Result<()> {
     let message = websocket.receive().await?;
     println!("test_websocket_connection - Received second message");
     match message {
-        rsurlsession::Message::Text(text) => {
+        frakt::Message::Text(text) => {
             println!("test_websocket_connection - Received second text: {}", text);
             assert_eq!(text, "Second message!");
         }
@@ -322,7 +325,7 @@ async fn test_websocket_connection() -> Result<()> {
     // Close the connection
     println!("test_websocket_connection - Closing connection...");
     websocket
-        .close(rsurlsession::CloseCode::Normal, Some("Test completed"))
+        .close(frakt::CloseCode::Normal, Some("Test completed"))
         .await?;
     println!("test_websocket_connection - Connection closed successfully");
 
@@ -334,7 +337,7 @@ async fn test_websocket_connection() -> Result<()> {
 async fn test_websocket_max_message_size() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     // Test WebSocket with custom max message size
@@ -354,7 +357,7 @@ async fn test_websocket_max_message_size() -> Result<()> {
 async fn test_websocket_close_code_and_reason() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     let mut websocket = client
@@ -368,7 +371,7 @@ async fn test_websocket_close_code_and_reason() -> Result<()> {
 
     // Close with specific code and reason
     websocket
-        .close(rsurlsession::CloseCode::Normal, Some("Manual close"))
+        .close(frakt::CloseCode::Normal, Some("Manual close"))
         .await?;
 
     // Note: The close code and reason might not be immediately available
@@ -382,7 +385,7 @@ async fn test_platform_backend() -> Result<()> {
     // Test that the client uses the appropriate backend for the platform
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     let response = client.get("https://httpbin.org/get")?.send().await?;
@@ -399,7 +402,7 @@ async fn test_platform_backend() -> Result<()> {
 async fn test_invalid_url_handling() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     // Test invalid URL schemes
@@ -421,7 +424,7 @@ async fn test_invalid_url_handling() -> Result<()> {
 async fn test_connection_failures() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .timeout(Duration::from_secs(2))
         .build()?;
 
@@ -443,7 +446,7 @@ async fn test_connection_failures() -> Result<()> {
 async fn test_invalid_headers() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     // Test invalid header values (should return error)
@@ -460,7 +463,7 @@ async fn test_invalid_headers() -> Result<()> {
 async fn test_empty_request_body() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     // Test POST with empty body
@@ -484,7 +487,7 @@ async fn test_empty_request_body() -> Result<()> {
 async fn test_response_content_validation() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     // Test JSON response parsing
@@ -524,7 +527,7 @@ async fn test_download_with_progress() -> Result<()> {
 
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     let temp_dir = std::env::temp_dir();
@@ -574,7 +577,7 @@ async fn test_upload_with_progress() -> Result<()> {
 
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     // Create test data
@@ -615,7 +618,7 @@ async fn test_upload_with_progress() -> Result<()> {
 async fn test_form_urlencoded_upload() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
-        .user_agent("rsurlsession-integration-test/1.0")
+        .user_agent("frakt-integration-test/1.0")
         .build()?;
 
     // Test form-urlencoded data

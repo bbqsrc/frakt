@@ -12,7 +12,7 @@ use crate::backend::Backend;
 /// # Examples
 ///
 /// ```no_run
-/// # use rsurlsession::Client;
+/// # use frakt::Client;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
 /// let response = client
@@ -46,7 +46,7 @@ pub struct DownloadResponse {
 /// ## Basic download
 ///
 /// ```no_run
-/// # use rsurlsession::Client;
+/// # use frakt::Client;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
 /// let response = client
@@ -65,7 +65,7 @@ pub struct DownloadResponse {
 /// ## Download with progress monitoring
 ///
 /// ```no_run
-/// # use rsurlsession::Client;
+/// # use frakt::Client;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
 /// let response = client
@@ -115,7 +115,7 @@ impl DownloadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -145,7 +145,7 @@ impl DownloadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
@@ -200,7 +200,7 @@ impl DownloadBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// # use rsurlsession::Client;
+    /// # use frakt::Client;
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client

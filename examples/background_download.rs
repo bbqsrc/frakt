@@ -4,7 +4,7 @@
 //! even when the app is suspended. Background downloads require a unique
 //! session identifier.
 
-use rsurlsession::Client;
+use frakt::Client;
 use tokio;
 
 #[tokio::main]
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create background download with required session identifier
     let response = client
         .download_background(url)
-        .session_identifier("com.example.rsurlsession.background")
+        .session_identifier("com.example.frakt.background")
         .to_file(&download_path)
         .progress(|bytes_downloaded, total_bytes| {
             if let Some(total) = total_bytes {

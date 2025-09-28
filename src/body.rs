@@ -12,7 +12,7 @@ use std::borrow::Cow;
 ///
 /// Creating different body types:
 /// ```rust,no_run
-/// use rsurlsession::Body;
+/// use frakt::Body;
 ///
 /// // Text body
 /// let body = Body::text("Hello, World!");
@@ -30,7 +30,7 @@ use std::borrow::Cow;
 ///
 /// Using convenient `From` implementations:
 /// ```rust,no_run
-/// use rsurlsession::{Client, Body};
+/// use frakt::{Client, Body};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -87,7 +87,7 @@ pub enum Body {
 /// # Examples
 ///
 /// ```rust,no_run
-/// use rsurlsession::MultipartPart;
+/// use frakt::MultipartPart;
 ///
 /// // Text field
 /// let text_part = MultipartPart::text("description", "A sample file");
@@ -132,7 +132,7 @@ impl Body {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::Body;
+    /// use frakt::Body;
     ///
     /// let data = vec![0xFF, 0xD8, 0xFF, 0xE0]; // JPEG header
     /// let body = Body::bytes(data, "image/jpeg");
@@ -155,7 +155,7 @@ impl Body {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::Body;
+    /// use frakt::Body;
     ///
     /// let body = Body::text("Hello, World!");
     /// ```
@@ -178,7 +178,7 @@ impl Body {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::Body;
+    /// use frakt::Body;
     ///
     /// let body = Body::form(vec![
     ///     ("username", "john_doe"),
@@ -211,7 +211,7 @@ impl Body {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::Body;
+    /// use frakt::Body;
     /// use serde_json::json;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -242,7 +242,7 @@ impl Body {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::{Body, MultipartPart};
+    /// use frakt::{Body, MultipartPart};
     ///
     /// let parts = vec![
     ///     MultipartPart::text("description", "Profile image"),
@@ -272,7 +272,7 @@ impl Body {
     /// # Examples
     ///
     /// ```rust,no_run
-    /// use rsurlsession::Body;
+    /// use frakt::Body;
     ///
     /// # #[tokio::main]
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {

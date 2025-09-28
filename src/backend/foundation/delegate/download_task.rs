@@ -26,7 +26,7 @@ pub struct DownloadTaskDelegateIvars {
 define_class!(
     /// NSURLSessionDownloadDelegate implementation
     #[unsafe(super = NSObject)]
-    #[name = "RsUrlSessionDownloadTaskDelegate"]
+    #[name = "fraktDownloadTaskDelegate"]
     #[ivars = DownloadTaskDelegateIvars]
     pub struct DownloadTaskDelegate;
 
@@ -61,7 +61,7 @@ define_class!(
         #[unsafe(method(URLSession:task:didReceiveChallenge:completionHandler:))]
         fn URLSession_task_didReceiveChallenge_completionHandler(
             &self,
-            session: &NSURLSession,
+            _session: &NSURLSession,
             _task: &NSURLSessionTask,
             challenge: &NSURLAuthenticationChallenge,
             completion_handler: &DynBlock<

@@ -1,6 +1,6 @@
 //! Example demonstrating cookie management with httpbin
 
-use rsurlsession::{Client, Cookie, CookieJar, Result};
+use frakt::{Client, Cookie, CookieJar, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {

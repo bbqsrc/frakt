@@ -1,6 +1,6 @@
 //! Test the new backend abstraction system
 
-use rsurlsession::backend::Backend;
+use frakt::backend::Backend;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,6 +19,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         test_backend(foundation_backend, "Foundation").await?;
     }
 
+    // Test Windows backend (Windows only)
+    #[cfg(windows)]
+    {
+        println!("\n=== Testing Windows backend ===");
+        let windows_backend = Backend::windows()?;
+        test_backend(windows_backend, "Windows").await?;
+    }
+
     // Test auto-selection
     println!("\n=== Testing auto-selected backend ===");
     let auto_backend = Backend::default_for_platform()?;
@@ -30,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn test_backend(backend: Backend, name: &str) -> Result<(), Box<dyn std::error::Error>> {
     use http::{HeaderMap, Method};
-    use rsurlsession::backend::types::BackendRequest;
+    use frakt::backend::types::BackendRequest;
 
     println!("Testing {} backend...", name);
 

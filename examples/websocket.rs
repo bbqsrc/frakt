@@ -1,6 +1,6 @@
 //! Example demonstrating WebSocket support
 
-use rsurlsession::{Client, Message, Result};
+use frakt::{Client, Message, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -8,7 +8,7 @@ async fn main() -> Result<()> {
 
     // Create a client
     let client = Client::builder()
-        .user_agent("rsurlsession-websocket-example/1.0")
+        .user_agent("frakt-websocket-example/1.0")
         .build()?;
 
     // Create WebSocket connection to echo server
@@ -67,7 +67,7 @@ async fn main() -> Result<()> {
     // Close the connection
     println!("Closing WebSocket connection...");
     websocket
-        .close(rsurlsession::CloseCode::Normal, Some("Example completed"))
+        .close(frakt::CloseCode::Normal, Some("Example completed"))
         .await?;
 
     // Check close info

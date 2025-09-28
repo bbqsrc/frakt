@@ -116,17 +116,6 @@ impl RequestBuilder {
         self
     }
 
-    /// Add default headers from client (internal use)
-    pub(crate) fn add_default_headers(&mut self, default_headers: http::HeaderMap) {
-        for (name, value) in default_headers {
-            if let Some(name) = name {
-                // Only add if not already present
-                if !self.headers.contains_key(&name) {
-                    self.headers.insert(name, value);
-                }
-            }
-        }
-    }
 
     /// Send the request and return the response
     pub async fn send(self) -> Result<crate::Response> {

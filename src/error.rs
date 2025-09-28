@@ -10,7 +10,7 @@ use thiserror::Error;
 /// # Examples
 ///
 /// ```rust
-/// use rsurlsession::{Client, Result};
+/// use frakt::{Client, Result};
 ///
 /// async fn make_request() -> Result<String> {
 ///     let client = Client::new()?;
@@ -22,13 +22,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// Error types for NSURLSession operations.
 ///
-/// This enum represents all possible errors that can occur when using the rsurlsession library.
+/// This enum represents all possible errors that can occur when using the frakt library.
 /// Errors are mapped from NSURLSession's NSError types to provide idiomatic Rust error handling.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use rsurlsession::{Client, Error};
+/// use frakt::{Client, Error};
 ///
 /// # #[tokio::main]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {

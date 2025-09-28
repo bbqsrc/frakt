@@ -1,11 +1,11 @@
-//! Miri tests for unsafe code in rsurlsession
+//! Miri tests for unsafe code in frakt
 //!
 //! This file contains tests that run only under miri to check for undefined behavior
 //! in the unsafe code paths that don't require network access or the full Objective-C runtime.
 
 #![cfg(miri)]
 
-use rsurlsession::Body;
+use frakt::Body;
 
 #[test]
 fn test_method_as_str() {
@@ -107,7 +107,7 @@ fn test_body_json_creation() {
 #[test]
 fn test_multipart_part_creation() {
     // Test multipart form part creation
-    use rsurlsession::MultipartPart;
+    use frakt::MultipartPart;
 
     let part = MultipartPart::file(
         "file",
