@@ -106,9 +106,9 @@ impl Backend {
     /// Use Windows backend with configuration (Windows only)
     #[cfg(windows)]
     pub fn windows_with_config(config: BackendConfig) -> Result<Self> {
-        Ok(Backend::Windows(
-            windows::WindowsBackend::with_config(config)?,
-        ))
+        Ok(Backend::Windows(windows::WindowsBackend::with_config(
+            config,
+        )?))
     }
 
     /// Use reqwest backend with configuration

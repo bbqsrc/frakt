@@ -116,7 +116,6 @@ impl RequestBuilder {
         self
     }
 
-
     /// Send the request and return the response
     pub async fn send(self) -> Result<crate::Response> {
         let request = Request {

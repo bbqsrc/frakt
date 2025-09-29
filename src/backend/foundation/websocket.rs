@@ -11,7 +11,6 @@ use objc2_foundation::{
 };
 use tokio::sync::oneshot;
 
-
 impl From<CloseCode> for NSURLSessionWebSocketCloseCode {
     fn from(code: CloseCode) -> Self {
         NSURLSessionWebSocketCloseCode(code as isize)

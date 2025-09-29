@@ -1,5 +1,6 @@
 //! Authentication support for HTTP requests
 
+use base64::Engine;
 use std::fmt;
 
 /// Authentication methods supported by HTTP requests.
@@ -164,7 +165,10 @@ impl Auth {
         match self {
             Auth::Basic { username, password } => {
                 let credentials = format!("{}:{}", username, password);
-                let encoded = base64_encode(credentials.as_bytes());
+                let encoded = base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    credentials.as_bytes(),
+                );
                 format!("Basic {}", encoded)
             }
             Auth::Bearer { token } => {
@@ -192,41 +196,6 @@ impl fmt::Display for Auth {
     }
 }
 
-/// Simple base64 encoding implementation
-/// This avoids adding another dependency and is sufficient for Basic auth
-fn base64_encode(input: &[u8]) -> String {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = String::new();
-
-    let mut i = 0;
-    while i < input.len() {
-        let b1 = input[i];
-        let b2 = if i + 1 < input.len() { input[i + 1] } else { 0 };
-        let b3 = if i + 2 < input.len() { input[i + 2] } else { 0 };
-
-        let bitmap = ((b1 as u32) << 16) | ((b2 as u32) << 8) | (b3 as u32);
-
-        result.push(ALPHABET[((bitmap >> 18) & 63) as usize] as char);
-        result.push(ALPHABET[((bitmap >> 12) & 63) as usize] as char);
-
-        if i + 1 < input.len() {
-            result.push(ALPHABET[((bitmap >> 6) & 63) as usize] as char);
-        } else {
-            result.push('=');
-        }
-
-        if i + 2 < input.len() {
-            result.push(ALPHABET[(bitmap & 63) as usize] as char);
-        } else {
-            result.push('=');
-        }
-
-        i += 3;
-    }
-
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,12 +216,5 @@ mod tests {
     fn test_custom_auth() {
         let auth = Auth::custom("ApiKey", "secret123");
         assert_eq!(auth.to_header_value(), "ApiKey secret123");
-    }
-
-    #[test]
-    fn test_base64_encode() {
-        assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
-        assert_eq!(base64_encode(b"user:pass"), "dXNlcjpwYXNz");
-        assert_eq!(base64_encode(b"test"), "dGVzdA==");
     }
 }

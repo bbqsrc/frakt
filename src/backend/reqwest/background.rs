@@ -354,7 +354,10 @@ async fn try_download_with_resume(
             // Range not satisfiable - file is already complete
             return Ok(start_byte);
         }
-        return Err(Error::Internal(format!("HTTP error: {}", response.status())));
+        return Err(Error::Internal(format!(
+            "HTTP error: {}",
+            response.status()
+        )));
     }
 
     // Get total size if available
@@ -374,8 +377,7 @@ async fn try_download_with_resume(
     let mut bytes_downloaded = start_byte;
 
     while let Some(chunk_result) = stream.next().await {
-        let chunk = chunk_result
-            .map_err(|e| Error::Internal(format!("Stream error: {}", e)))?;
+        let chunk = chunk_result.map_err(|e| Error::Internal(format!("Stream error: {}", e)))?;
 
         // Write chunk to file
         std::io::Write::write_all(&mut file, &chunk)
@@ -477,4 +479,3 @@ async fn daemon_download_async(
     write_state("completed", bytes_downloaded, None);
     Ok(())
 }
-

@@ -108,5 +108,4 @@ impl ReqwestCookieStorage {
         // reqwest doesn't expose cookie acceptance policy configuration
         // This is a limitation of the reqwest cookie jar API
     }
-
 }

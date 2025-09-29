@@ -146,17 +146,21 @@ async fn test_cookie_jar() -> Result<()> {
         .build()?;
 
     // Set a cookie
+    eprintln!("== Setting cookie via httpbin... ==");
     let _response = client
         .get("https://httpbin.org/cookies/set/test_cookie/test_value")?
         .send()
         .await?;
 
+    eprintln!("== Verifying cookie was set ==");
     // Verify the cookie is sent back
     let response = client.get("https://httpbin.org/cookies")?.send().await?;
 
     assert_eq!(response.status(), 200);
 
     let text = response.text().await?;
+    eprintln!("Response: {:?}", text);
+
     assert!(text.contains("test_cookie"));
     assert!(text.contains("test_value"));
 
@@ -203,7 +207,7 @@ async fn test_timeout() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
         .user_agent("frakt-integration-test/1.0")
-        .timeout(Duration::from_millis(100)) // Very short timeout
+        .timeout(Duration::from_millis(1)) // Very short timeout
         .build()?;
 
     // This should timeout
@@ -211,6 +215,8 @@ async fn test_timeout() -> Result<()> {
         .get("https://httpbin.org/delay/5")? // 5 second delay
         .send()
         .await;
+
+    eprintln!("{:?}", result);
 
     // Should get a timeout error
     assert!(result.is_err());

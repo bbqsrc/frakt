@@ -76,7 +76,11 @@ pub fn map_windows_error(error: core::Error) -> Error {
         0x80070057 => Error::Internal("Invalid argument".to_string()),
 
         // Default case
-        _ => Error::Internal(format!("Windows error: 0x{:08X} - {}", hresult, error.message())),
+        _ => Error::Internal(format!(
+            "Windows error: 0x{:08X} - {}",
+            hresult,
+            error.message()
+        )),
     }
 }
 
@@ -87,7 +91,10 @@ pub fn map_windows_error_with_context(error: core::Error, context: &str) -> Erro
     // Add context to the error message
     if let Error::Internal(ref mut message) = mapped_error {
         *message = format!("{}: {}", context, message);
-    } else if let Error::Network { ref mut message, .. } = mapped_error {
+    } else if let Error::Network {
+        ref mut message, ..
+    } = mapped_error
+    {
         *message = format!("{}: {}", context, message);
     }
 

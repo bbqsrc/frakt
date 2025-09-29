@@ -1,6 +1,6 @@
 # frakt
 
-High-performance, async-first NSURLSession bindings for Rust. Native macOS/iOS HTTP client with zero-overhead Objective-C interop.
+High-performance, async-first HTTP client for Rust. Cross-platform with native backends: NSURLSession on Apple platforms, WinHTTP on Windows, and Reqwest elsewhere.
 
 [![Crates.io](https://img.shields.io/crates/v/frakt.svg)](https://crates.io/crates/frakt)
 [![Documentation](https://docs.rs/frakt/badge.svg)](https://docs.rs/frakt)
@@ -10,10 +10,10 @@ High-performance, async-first NSURLSession bindings for Rust. Native macOS/iOS H
 
 - **Async/await with tokio** - Full async support, no blocking APIs
 - **All HTTP methods** - GET, POST, PUT, DELETE, PATCH, HEAD
-- **WebSocket support** - NSURLSessionWebSocketTask integration
+- **WebSocket support** - NSURLSessionWebSocketTask/WinHTTP integration
 - **File operations** - Uploads/downloads with progress tracking
 - **Background sessions** - Downloads that survive app suspension (iOS)
-- **Cookie management** - NSHTTPCookieStorage integration
+- **Cookie management** - NSHTTPCookieStorage/cookie_store integration
 - **Proxy configuration** - HTTP/HTTPS/SOCKS proxy support
 - **Authentication** - Basic, Bearer, and Custom authentication
 - **TLS/Certificate handling** - Server trust challenge support
@@ -32,11 +32,13 @@ frakt = "0.1"
 
 ## Platform Support
 
-- **macOS** 10.15+ (Catalina)
-- **iOS** 13.0+
-- **Rust** 1.89+
+- **macOS** 10.15+ (Foundation backend using NSURLSession)
+- **iOS** 13.0+ (Foundation backend using NSURLSession)
+- **Windows** (WinHTTP backend)
+- **Linux/Unix** (Reqwest backend)
+- **Rust** 1.86+
 
-Only Apple platforms are supported as this library provides direct NSURLSession bindings.
+The library automatically selects the best native backend for each platform. You can also manually specify a backend using `BackendType` if needed.
 
 ## Quick Start
 
@@ -214,17 +216,17 @@ Run examples with `cargo run --example <name>`:
 
 ## Architecture
 
-This library provides direct Rust bindings to NSURLSession using [objc2](https://github.com/madsmtm/objc2). Key design principles:
+This library provides a unified HTTP client interface with platform-native backends. On Apple platforms, it uses direct Rust bindings to NSURLSession via [objc2](https://github.com/madsmtm/objc2). On Windows, it uses WinHTTP APIs. On other platforms, it uses the battle-tested Reqwest library. Key design principles:
 
 - **Async-only**: Built for tokio, no blocking APIs
-- **Zero-overhead**: Direct objc2 calls with minimal abstraction
-- **Memory efficient**: Uses NSData references where possible
-- **Type safe**: All unsafe objc2 calls are wrapped in safe APIs
+- **Zero-overhead**: Direct native API calls with minimal abstraction
+- **Memory efficient**: Uses platform-native data types where possible
+- **Type safe**: All unsafe native API calls are wrapped in safe APIs
 - **Rusty**: Builder patterns and ergonomic error handling
 
 ## Error Handling
 
-All NSURLSession errors are mapped to Rust's `Result` type:
+All errors are mapped to Rust's `Result` type:
 
 ```rust
 use frakt::Error;
@@ -240,7 +242,7 @@ match client.get("https://invalid-url").send().await {
 
 ## Performance
 
-frakt leverages NSURLSession's native performance optimizations:
+frakt leverages platform-native performance optimizations:
 
 - **HTTP/2 and HTTP/3** support (when available)
 - **Connection pooling** and keep-alive

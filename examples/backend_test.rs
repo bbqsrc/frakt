@@ -37,8 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn test_backend(backend: Backend, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use http::{HeaderMap, Method};
     use frakt::backend::types::BackendRequest;
+    use http::{HeaderMap, Method};
 
     println!("Testing {} backend...", name);
 

@@ -10,7 +10,6 @@ use tokio_tungstenite::{
     tungstenite::{self, protocol::CloseFrame},
 };
 
-
 /// Reqwest WebSocket implementation
 pub struct ReqwestWebSocket {
     /// The underlying WebSocket stream

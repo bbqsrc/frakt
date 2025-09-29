@@ -457,10 +457,9 @@ impl Client {
                 )
             }
             #[cfg(windows)]
-            Backend::Windows(_) => {
-                // TODO: Implement Windows WebSocket support
-                todo!()
-            }
+            Backend::Windows(_) => crate::websocket::WebSocketBuilder::Windows(
+                crate::backend::windows::WindowsWebSocketBuilder::new(),
+            ),
             Backend::Reqwest(_) => {
                 // Use Reqwest backend for WebSocket with tokio-tungstenite
                 crate::websocket::WebSocketBuilder::Reqwest(
