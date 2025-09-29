@@ -29,6 +29,7 @@ async fn test_basic_get_request() -> Result<()> {
     assert_eq!(response.status(), 200);
 
     let text = response.text().await?;
+    println!("Response text: {}", text);
     assert!(text.contains("httpbin.org"));
 
     Ok(())
@@ -207,7 +208,7 @@ async fn test_timeout() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
         .user_agent("frakt-integration-test/1.0")
-        .timeout(Duration::from_millis(1)) // Very short timeout
+        .timeout(Duration::from_millis(100)) // Short but more reasonable timeout
         .build()?;
 
     // This should timeout
@@ -220,6 +221,13 @@ async fn test_timeout() -> Result<()> {
 
     // Should get a timeout error
     assert!(result.is_err());
+    if let Err(error) = result {
+        assert!(
+            matches!(error, frakt::Error::Timeout),
+            "Expected Timeout error, got: {:?}",
+            error
+        );
+    }
 
     Ok(())
 }
