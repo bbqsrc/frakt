@@ -272,9 +272,15 @@ impl ReqwestBackend {
         }
 
         // Send request
-        let response = req_builder.send().await.map_err(|e| Error::Network {
-            code: -1,
-            message: format!("Request failed: {}", e),
+        let response = req_builder.send().await.map_err(|e| {
+            if e.is_timeout() {
+                Error::Timeout
+            } else {
+                Error::Network {
+                    code: -1,
+                    message: format!("Request failed: {}", e),
+                }
+            }
         })?;
 
         // Extract status and headers

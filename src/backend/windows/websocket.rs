@@ -13,12 +13,13 @@ use std::sync::{
 use windows::{
     Win32::Foundation::GetLastError,
     Win32::Networking::WinHttp::{
-        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_OPEN_REQUEST_FLAGS,
-        WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE, WINHTTP_WEB_SOCKET_BUFFER_TYPE,
-        WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE, WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE,
-        WinHttpCloseHandle, WinHttpConnect, WinHttpOpen, WinHttpOpenRequest,
-        WinHttpReceiveResponse, WinHttpSendRequest, WinHttpWebSocketClose,
-        WinHttpWebSocketCompleteUpgrade, WinHttpWebSocketReceive, WinHttpWebSocketSend,
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_FLAG_SECURE, WINHTTP_OPEN_REQUEST_FLAGS,
+        WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE,
+        WINHTTP_WEB_SOCKET_BUFFER_TYPE, WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE,
+        WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE, WinHttpCloseHandle, WinHttpConnect,
+        WinHttpOpen, WinHttpOpenRequest, WinHttpReceiveResponse, WinHttpSendRequest,
+        WinHttpSetOption, WinHttpWebSocketClose, WinHttpWebSocketCompleteUpgrade,
+        WinHttpWebSocketReceive, WinHttpWebSocketSend,
     },
     core::{HSTRING, PCWSTR},
 };
@@ -133,7 +134,7 @@ impl WindowsWebSocket {
                 let path_wide = HSTRING::from(&full_path);
                 let mut flags = WINHTTP_OPEN_REQUEST_FLAGS(0);
                 if scheme == "wss" {
-                    flags = windows::Win32::Networking::WinHttp::WINHTTP_FLAG_SECURE;
+                    flags = WINHTTP_FLAG_SECURE;
                 }
 
                 let request_handle = WinHttpOpenRequest(
@@ -154,6 +155,19 @@ impl WindowsWebSocket {
                         GetLastError().0
                     )));
                 }
+
+                // Set the request to be a WebSocket upgrade request
+                WinHttpSetOption(
+                    Some(request_handle),
+                    WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET,
+                    None, // No data needed for this option
+                )
+                .map_err(|e| {
+                    let _ = WinHttpCloseHandle(request_handle);
+                    let _ = WinHttpCloseHandle(connection);
+                    let _ = WinHttpCloseHandle(session);
+                    Error::Internal(format!("Failed to set WebSocket upgrade option: {}", e))
+                })?;
 
                 // Add WebSocket headers for proper handshake
                 // Generate a cryptographically random 16-byte key as per RFC 6455
