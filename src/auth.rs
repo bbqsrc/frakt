@@ -1,6 +1,5 @@
 //! Authentication support for HTTP requests
 
-use base64::Engine;
 use std::fmt;
 
 /// Authentication methods supported by HTTP requests.

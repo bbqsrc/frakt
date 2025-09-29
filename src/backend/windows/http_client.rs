@@ -325,7 +325,7 @@ unsafe extern "system" fn winhttp_callback(
                 };
 
                 match result {
-                    Ok(_) => {}, // Success - callback will handle DATA_AVAILABLE
+                    Ok(_) => {} // Success - callback will handle DATA_AVAILABLE
                     Err(e) => {
                         // Signal completion on query error
                         if let Ok(mut sender_lock) = context.completion_sender.lock() {
@@ -735,7 +735,7 @@ async fn execute_async_winhttp(
 
         // Wait for send completion
         match send_completion_rx.await {
-            Ok(Ok(())) => {}, // Success
+            Ok(Ok(())) => {} // Success
             Ok(Err(e)) => {
                 let _ = WinHttpCloseHandle(request_handle);
                 let _ = WinHttpCloseHandle(connection);
@@ -770,7 +770,7 @@ async fn execute_async_winhttp(
 
         // Wait for headers completion
         match headers_completion_rx.await {
-            Ok(Ok(())) => {}, // Success
+            Ok(Ok(())) => {} // Success
             Ok(Err(e)) => {
                 let _ = WinHttpCloseHandle(request_handle);
                 let _ = WinHttpCloseHandle(connection);
@@ -858,7 +858,7 @@ async fn execute_async_winhttp(
 
         // Wait for data reading completion
         match data_completion_rx.await {
-            Ok(Ok(())) => {}, // Success
+            Ok(Ok(())) => {} // Success
             Ok(Err(e)) => {
                 let _ = WinHttpCloseHandle(request_handle);
                 let _ = WinHttpCloseHandle(connection);
