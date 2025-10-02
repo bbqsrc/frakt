@@ -256,3 +256,12 @@ mod request;
 mod response;
 mod task;
 mod websocket;
+
+pub use vampire::JNI_OnLoad;
+
+#[cfg(vampire)]
+#[path = "../tests"]
+mod android_tests {
+    #[path = "integration_tests.rs"]
+    mod integration_tests;
+}

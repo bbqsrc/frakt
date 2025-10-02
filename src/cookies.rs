@@ -1,6 +1,9 @@
 //! Cookie management using backend abstraction
 
-use crate::{Result, backend::CookieStorage};
+use crate::{
+    BackendType, Result,
+    backend::{Backend, CookieStorage},
+};
 
 /// Policy for cookie acceptance.
 ///
@@ -95,9 +98,9 @@ impl CookieJar {
     /// let jar = CookieJar::new();
     /// # }
     /// ```
-    pub fn new() -> Self {
+    pub fn new(backend: Backend) -> Self {
         Self {
-            storage: CookieStorage::new(),
+            storage: CookieStorage::new(backend),
         }
     }
 
@@ -301,12 +304,6 @@ impl CookieJar {
     /// ```
     pub fn set_cookie_accept_policy(&self, policy: CookieAcceptPolicy) {
         self.storage.set_cookie_accept_policy(policy)
-    }
-}
-
-impl Default for CookieJar {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

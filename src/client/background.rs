@@ -1,5 +1,6 @@
 //! Background download builder for downloads that survive app termination
 
+use http::HeaderMap;
 use url::Url;
 
 use crate::backend::Backend;
@@ -21,7 +22,9 @@ pub struct BackgroundDownloadBuilder {
     url: Url,
     session_identifier: Option<String>,
     file_path: Option<std::path::PathBuf>,
+    headers: HeaderMap,
     progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+    error_for_status: bool,
 }
 
 impl BackgroundDownloadBuilder {
@@ -32,7 +35,9 @@ impl BackgroundDownloadBuilder {
             url,
             session_identifier: None,
             file_path: None,
+            headers: HeaderMap::new(),
             progress_callback: None,
+            error_for_status: true,
         }
     }
 
@@ -153,6 +158,171 @@ impl BackgroundDownloadBuilder {
         self
     }
 
+    /// Add a header to the background download request.
+    ///
+    /// Headers are added to the HTTP request that will be sent to the server.
+    /// Multiple headers with the same name will overwrite previous values.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The header name (can be a string or `HeaderName`)
+    /// * `value` - The header value
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Self)` on success, allowing method chaining.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The header name is invalid (contains invalid characters)
+    /// - The header value is invalid (contains newlines or other invalid characters)
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download_background("https://api.example.com/protected-large-file.zip")?
+    ///     .session_identifier("protected-download")
+    ///     .to_file("protected_large_file.zip")
+    ///     .header("Authorization", "Bearer token123")?
+    ///     .header("User-Agent", "MyApp/1.0")?
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn header(
+        mut self,
+        name: impl TryInto<http::HeaderName>,
+        value: impl Into<String>,
+    ) -> crate::Result<Self> {
+        let header_name = name.try_into().map_err(|_| crate::Error::InvalidHeader)?;
+        let header_value =
+            http::HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers.insert(header_name, header_value);
+        Ok(self)
+    }
+
+    /// Set authentication for the background download request.
+    ///
+    /// Adds an `Authorization` header to the request using the provided authentication
+    /// method. Supports Basic, Bearer, and custom authentication schemes.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth` - The authentication method to use
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Self)` on success, allowing method chaining.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the authentication header value is invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::{Client, Auth};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Bearer token for authenticated background download
+    /// let response = client
+    ///     .download_background("https://api.example.com/premium-content.zip")?
+    ///     .session_identifier("premium-content-download")
+    ///     .to_file("premium_content.zip")
+    ///     .auth(Auth::bearer("your-api-token"))?
+    ///     .send()
+    ///     .await?;
+    ///
+    /// // Basic authentication
+    /// let response = client
+    ///     .download_background("https://secure.example.com/data.zip")?
+    ///     .session_identifier("secure-data-download")
+    ///     .to_file("secure_data.zip")
+    ///     .auth(Auth::basic("username", "password"))?
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn auth(mut self, auth: crate::Auth) -> crate::Result<Self> {
+        let header_value = http::HeaderValue::from_str(&auth.to_header_value())
+            .map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers
+            .insert(http::header::AUTHORIZATION, header_value);
+        Ok(self)
+    }
+
+    /// Configure whether to return an error for HTTP error status codes (>= 400).
+    ///
+    /// When enabled (the default), responses with status codes >= 400 will return
+    /// an `HttpError` containing the full response without downloading the file.
+    /// When disabled, all status codes are treated as success and the file will be
+    /// downloaded regardless of the status code.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - If `true`, error on status >= 400; if `false`, download regardless
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Download a 404 error page in background
+    /// let response = client
+    ///     .download_background("https://httpbin.org/status/404")?
+    ///     .session_identifier("test-404")
+    ///     .to_file("error.html")
+    ///     .error_for_status(false)
+    ///     .send()
+    ///     .await?;
+    ///
+    /// assert_eq!(response.status, 404);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn error_for_status(mut self, enabled: bool) -> Self {
+        self.error_for_status = enabled;
+        self
+    }
+
+    /// Convenience method to allow error status codes (>= 400) to be downloaded.
+    ///
+    /// This is equivalent to calling `.error_for_status(false)`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Download a 404 error page in background
+    /// let response = client
+    ///     .download_background("https://httpbin.org/status/404")?
+    ///     .session_identifier("test-404")
+    ///     .to_file("error.html")
+    ///     .allow_error_status()
+    ///     .send()
+    ///     .await?;
+    ///
+    /// assert_eq!(response.status, 404);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn allow_error_status(self) -> Self {
+        self.error_for_status(false)
+    }
+
     /// Start the background download and return immediately.
     ///
     /// This method initiates a background download that will continue even if the
@@ -219,7 +389,9 @@ impl BackgroundDownloadBuilder {
                 self.url,
                 file_path,
                 self.session_identifier,
+                self.headers,
                 self.progress_callback,
+                self.error_for_status,
             )
             .await
     }

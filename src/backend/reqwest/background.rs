@@ -33,7 +33,9 @@ pub async fn execute_unix_background_download(
     url: Url,
     file_path: PathBuf,
     session_identifier: Option<String>,
+    headers: http::HeaderMap,
     progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+    _error_for_status: bool,
 ) -> Result<crate::client::download::DownloadResponse> {
     let session_id = session_identifier.unwrap_or_else(|| generate_session_id("unix"));
     let state_dir = ensure_state_dir()?;
@@ -67,7 +69,8 @@ pub async fn execute_unix_background_download(
                 }
 
                 // Redirect stdin/stdout/stderr to /dev/null
-                let devnull = libc::open(b"/dev/null\0".as_ptr() as *const i8, libc::O_RDWR);
+                let devnull =
+                    libc::open(b"/dev/null\0".as_ptr() as *const libc::c_char, libc::O_RDWR);
                 if devnull >= 0 {
                     libc::dup2(devnull, 0);
                     libc::dup2(devnull, 1);
@@ -78,7 +81,14 @@ pub async fn execute_unix_background_download(
                 }
 
                 // Run the download in the daemon process
-                run_daemon_download(url, file_path, state_file, client, has_progress_callback);
+                run_daemon_download(
+                    url,
+                    file_path,
+                    state_file,
+                    client,
+                    headers,
+                    has_progress_callback,
+                );
 
                 // Exit when download completes
                 std::process::exit(0);
@@ -149,9 +159,12 @@ async fn monitor_background_download_with_progress(
                     // Clean up state file
                     let _ = std::fs::remove_file(&state_file);
 
+                    // TODO: Capture actual status and headers from background download
                     return Ok(crate::client::download::DownloadResponse {
                         file_path,
                         bytes_downloaded,
+                        status: http::StatusCode::OK,
+                        headers: http::HeaderMap::new(),
                     });
                 }
                 Some("failed") => {
@@ -179,6 +192,7 @@ pub async fn execute_resumable_background_download(
     url: Url,
     file_path: PathBuf,
     session_identifier: Option<String>,
+    headers: http::HeaderMap,
     progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
 ) -> Result<crate::client::download::DownloadResponse> {
     let session_id = session_identifier.unwrap_or_else(|| generate_session_id("resumable"));
@@ -216,6 +230,7 @@ pub async fn execute_resumable_background_download(
             &url,
             &file_path,
             bytes_downloaded,
+            &headers,
             progress_callback.as_deref(),
         )
         .await
@@ -275,6 +290,7 @@ fn run_daemon_download(
     file_path: PathBuf,
     state_file: PathBuf,
     client: reqwest::Client,
+    headers: http::HeaderMap,
     has_progress_callback: bool,
 ) {
     // Helper function to write state
@@ -317,6 +333,7 @@ fn run_daemon_download(
             file_path,
             &state_file,
             client,
+            headers,
             has_progress_callback,
             write_state,
         )
@@ -334,10 +351,18 @@ async fn try_download_with_resume(
     url: &Url,
     file_path: &std::path::Path,
     start_byte: u64,
+    headers: &http::HeaderMap,
     progress_callback: Option<&(dyn Fn(u64, Option<u64>) + Send + Sync)>,
 ) -> Result<u64> {
     // Create request with Range header for resume if needed
     let mut request_builder = client.get(url.clone());
+
+    // Add all custom headers first
+    for (name, value) in headers {
+        request_builder = request_builder.header(name, value);
+    }
+
+    // Add Range header for resume if needed (this can override Range in custom headers)
     if start_byte > 0 {
         request_builder = request_builder.header("Range", format!("bytes={}-", start_byte));
     }
@@ -404,6 +429,7 @@ async fn daemon_download_async(
     file_path: PathBuf,
     _state_file: &std::path::Path,
     client: reqwest::Client,
+    headers: http::HeaderMap,
     has_progress_callback: bool,
     write_state: impl Fn(&str, u64, Option<&str>),
 ) -> std::result::Result<(), String> {
@@ -418,6 +444,13 @@ async fn daemon_download_async(
 
     // Create request with Range header for resume if needed
     let mut request_builder = client.get(url);
+
+    // Add all custom headers first
+    for (name, value) in &headers {
+        request_builder = request_builder.header(name, value);
+    }
+
+    // Add Range header for resume if needed (this can override Range in custom headers)
     if initial_size > 0 {
         request_builder = request_builder.header("Range", format!("bytes={}-", initial_size));
     }

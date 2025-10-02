@@ -2,8 +2,12 @@
 
 use std::time::Duration;
 
-use frakt::{BackendType, Client, Result, backend};
+#[cfg(vampire)]
+use crate as frakt;
 
+use frakt::{Auth, BackendType, Client, CloseCode, Error, Message, Result};
+
+#[cfg(not(target_os = "android"))]
 fn backend() -> BackendType {
     match std::env::var("BACKEND").as_deref() {
         #[cfg(target_vendor = "apple")]
@@ -11,15 +15,21 @@ fn backend() -> BackendType {
         Ok("reqwest") => BackendType::Reqwest,
         #[cfg(windows)]
         Ok("windows") => BackendType::Windows,
+        #[cfg(target_os = "android")]
+        Ok("android") => BackendType::Android,
         Ok(x) => panic!("Unknown BACKEND env var value: {:?}", x),
         Err(_) => panic!("Please set BACKEND env var to either 'foundation' or 'reqwest'"),
     }
 }
 
-#[tokio::test]
+#[cfg(target_os = "android")]
+fn backend() -> BackendType {
+    BackendType::Android
+}
+
+#[vampire::test]
 async fn test_basic_get_request() -> Result<()> {
     let client = Client::builder()
-        .backend(backend())
         .backend(backend())
         .user_agent("frakt-integration-test/1.0")
         .build()?;
@@ -35,7 +45,7 @@ async fn test_basic_get_request() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_post_with_json() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -54,6 +64,8 @@ async fn test_post_with_json() -> Result<()> {
     assert_eq!(response.status(), 200);
 
     let text = response.text().await?;
+
+    println!("{text}");
     // Verify the JSON was properly echoed back
     assert!(text.contains("\"test\": \"data\""));
     assert!(text.contains("\"number\": 42"));
@@ -62,10 +74,12 @@ async fn test_post_with_json() -> Result<()> {
     // Verify it was sent as POST
     assert!(text.contains("\"url\": \"https://httpbin.org/post\""));
 
+    panic!("NO");
+
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_headers() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -90,7 +104,7 @@ async fn test_headers() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_basic_auth() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -99,7 +113,7 @@ async fn test_basic_auth() -> Result<()> {
 
     let response = client
         .get("https://httpbin.org/basic-auth/testuser/testpass")?
-        .auth(frakt::Auth::Basic {
+        .auth(Auth::Basic {
             username: "testuser".to_string(),
             password: "testpass".to_string(),
         })
@@ -114,7 +128,7 @@ async fn test_basic_auth() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_bearer_auth() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -123,7 +137,7 @@ async fn test_bearer_auth() -> Result<()> {
 
     let response = client
         .get("https://httpbin.org/bearer")?
-        .auth(frakt::Auth::Bearer {
+        .auth(Auth::Bearer {
             token: "test-token".to_string(),
         })
         .send()
@@ -138,7 +152,7 @@ async fn test_bearer_auth() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_cookie_jar() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -168,7 +182,7 @@ async fn test_cookie_jar() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_download_file() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -201,7 +215,7 @@ async fn test_download_file() -> Result<()> {
 
 // Note: Multipart form test removed - feature may not be fully implemented yet
 
-#[tokio::test]
+#[vampire::test]
 async fn test_timeout() -> Result<()> {
     use std::time::Duration;
 
@@ -223,7 +237,7 @@ async fn test_timeout() -> Result<()> {
     assert!(result.is_err());
     if let Err(error) = result {
         assert!(
-            matches!(error, frakt::Error::Timeout),
+            matches!(error, Error::Timeout),
             "Expected Timeout error, got: {:?}",
             error
         );
@@ -232,7 +246,7 @@ async fn test_timeout() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_error_status_codes() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -246,7 +260,7 @@ async fn test_error_status_codes() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_response_headers() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -279,7 +293,8 @@ async fn test_response_headers() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
+#[cfg(not(target_os = "android"))]
 async fn test_websocket_connection() -> Result<()> {
     println!("test_websocket_connection - Starting test");
 
@@ -300,9 +315,7 @@ async fn test_websocket_connection() -> Result<()> {
 
     // Send a text message
     println!("test_websocket_connection - Sending text message...");
-    websocket
-        .send(frakt::Message::text("Hello WebSocket!"))
-        .await?;
+    websocket.send(Message::text("Hello WebSocket!")).await?;
     println!("test_websocket_connection - Text message sent successfully");
 
     // Receive the echo
@@ -310,7 +323,7 @@ async fn test_websocket_connection() -> Result<()> {
     let message = websocket.receive().await?;
     println!("test_websocket_connection - Received message");
     match message {
-        frakt::Message::Text(text) => {
+        Message::Text(text) => {
             println!("test_websocket_connection - Received text: {}", text);
             assert_eq!(text, "Hello WebSocket!");
         }
@@ -319,9 +332,7 @@ async fn test_websocket_connection() -> Result<()> {
 
     // Send another text message to test multi-message flow
     println!("test_websocket_connection - Sending second text message...");
-    websocket
-        .send(frakt::Message::text("Second message!"))
-        .await?;
+    websocket.send(Message::text("Second message!")).await?;
     println!("test_websocket_connection - Second text message sent successfully");
 
     // Receive the second echo
@@ -329,7 +340,7 @@ async fn test_websocket_connection() -> Result<()> {
     let message = websocket.receive().await?;
     println!("test_websocket_connection - Received second message");
     match message {
-        frakt::Message::Text(text) => {
+        Message::Text(text) => {
             println!("test_websocket_connection - Received second text: {}", text);
             assert_eq!(text, "Second message!");
         }
@@ -339,7 +350,7 @@ async fn test_websocket_connection() -> Result<()> {
     // Close the connection
     println!("test_websocket_connection - Closing connection...");
     websocket
-        .close(frakt::CloseCode::Normal, Some("Test completed"))
+        .close(CloseCode::Normal, Some("Test completed"))
         .await?;
     println!("test_websocket_connection - Connection closed successfully");
 
@@ -347,7 +358,8 @@ async fn test_websocket_connection() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
+#[cfg(not(target_os = "android"))]
 async fn test_websocket_max_message_size() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -367,7 +379,8 @@ async fn test_websocket_max_message_size() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
+#[cfg(not(target_os = "android"))]
 async fn test_websocket_close_code_and_reason() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -385,7 +398,7 @@ async fn test_websocket_close_code_and_reason() -> Result<()> {
 
     // Close with specific code and reason
     websocket
-        .close(frakt::CloseCode::Normal, Some("Manual close"))
+        .close(CloseCode::Normal, Some("Manual close"))
         .await?;
 
     // Note: The close code and reason might not be immediately available
@@ -394,7 +407,7 @@ async fn test_websocket_close_code_and_reason() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_platform_backend() -> Result<()> {
     // Test that the client uses the appropriate backend for the platform
     let client = Client::builder()
@@ -412,7 +425,7 @@ async fn test_platform_backend() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_invalid_url_handling() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -434,7 +447,7 @@ async fn test_invalid_url_handling() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_connection_failures() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -456,7 +469,7 @@ async fn test_connection_failures() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_invalid_headers() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -473,7 +486,7 @@ async fn test_invalid_headers() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_empty_request_body() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -497,7 +510,7 @@ async fn test_empty_request_body() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_response_content_validation() -> Result<()> {
     let client = Client::builder()
         .backend(backend())
@@ -535,7 +548,7 @@ async fn test_response_content_validation() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_download_with_progress() -> Result<()> {
     use std::sync::{Arc, Mutex};
 
@@ -585,7 +598,7 @@ async fn test_download_with_progress() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_upload_with_progress() -> Result<()> {
     use std::sync::{Arc, Mutex};
 
@@ -628,7 +641,7 @@ async fn test_upload_with_progress() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
+#[vampire::test]
 async fn test_form_urlencoded_upload() -> Result<()> {
     let client = Client::builder()
         .backend(backend())

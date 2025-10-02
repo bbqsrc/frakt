@@ -460,6 +460,14 @@ impl Client {
             Backend::Windows(_) => crate::websocket::WebSocketBuilder::Windows(
                 crate::backend::windows::WindowsWebSocketBuilder::new(),
             ),
+            #[cfg(target_os = "android")]
+            Backend::Android(_) => {
+                // Android backend uses reqwest for WebSocket (tokio-tungstenite)
+                // Cronet doesn't have built-in WebSocket support
+                crate::websocket::WebSocketBuilder::Reqwest(
+                    crate::backend::reqwest::ReqwestWebSocketBuilder::new(),
+                )
+            }
             Backend::Reqwest(_) => {
                 // Use Reqwest backend for WebSocket with tokio-tungstenite
                 crate::websocket::WebSocketBuilder::Reqwest(
@@ -534,6 +542,9 @@ pub enum BackendType {
     /// Windows backend (Windows only)
     #[cfg(windows)]
     Windows,
+    /// Android backend (Android only)
+    #[cfg(target_os = "android")]
+    Android,
 }
 
 impl ClientBuilder {
@@ -662,6 +673,8 @@ impl ClientBuilder {
             Some(BackendType::Foundation) => Backend::foundation_with_config(self.config)?,
             #[cfg(windows)]
             Some(BackendType::Windows) => Backend::windows_with_config(self.config)?,
+            #[cfg(target_os = "android")]
+            Some(BackendType::Android) => Backend::android_with_config(self.config)?,
             None => {
                 // Auto-select with config
                 #[cfg(target_vendor = "apple")]

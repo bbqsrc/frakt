@@ -60,6 +60,7 @@ pub struct UploadBuilder {
     data: Option<Vec<u8>>,
     headers: HeaderMap,
     progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+    error_for_status: bool,
 }
 
 impl UploadBuilder {
@@ -72,6 +73,7 @@ impl UploadBuilder {
             data: None,
             headers: HeaderMap::new(),
             progress_callback: None,
+            error_for_status: true,
         }
     }
 
@@ -289,6 +291,67 @@ impl UploadBuilder {
         Ok(self)
     }
 
+    /// Configure whether to return an error for HTTP error status codes (>= 400).
+    ///
+    /// When enabled (the default), responses with status codes >= 400 will return
+    /// an `HttpError` containing the full response. When disabled, all status codes
+    /// are treated as success and you must check the status manually.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - If `true`, error on status >= 400; if `false`, accept all status codes
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Upload to an endpoint that might return 404, don't error
+    /// let response = client
+    ///     .upload("https://httpbin.org/status/404")?
+    ///     .from_data(b"test".to_vec())
+    ///     .error_for_status(false)
+    ///     .send()
+    ///     .await?;
+    ///
+    /// assert_eq!(response.status(), 404);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn error_for_status(mut self, enabled: bool) -> Self {
+        self.error_for_status = enabled;
+        self
+    }
+
+    /// Convenience method to allow error status codes (>= 400) to be treated as success.
+    ///
+    /// This is equivalent to calling `.error_for_status(false)`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Don't error on 404 response
+    /// let response = client
+    ///     .upload("https://httpbin.org/status/404")?
+    ///     .from_data(b"test".to_vec())
+    ///     .allow_error_status()
+    ///     .send()
+    ///     .await?;
+    ///
+    /// assert_eq!(response.status(), 404);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn allow_error_status(self) -> Self {
+        self.error_for_status(false)
+    }
+
     /// Execute the upload and return the response.
     ///
     /// This method performs the actual upload using the configured data or file.
@@ -348,7 +411,8 @@ impl UploadBuilder {
 
         // Create request
         let mut request_builder =
-            crate::RequestBuilder::new(http::Method::POST, self.url, self.backend);
+            crate::RequestBuilder::new(http::Method::POST, self.url, self.backend)
+                .error_for_status(self.error_for_status);
 
         // Add headers
         for (name, value) in &self.headers {

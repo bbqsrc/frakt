@@ -1,5 +1,6 @@
 //! Download builder for downloading files to disk
 
+use http::{HeaderMap, StatusCode};
 use url::Url;
 
 use crate::backend::Backend;
@@ -7,7 +8,7 @@ use crate::backend::Backend;
 /// Response from a completed download operation.
 ///
 /// Contains information about the completed download, including where the file
-/// was saved and how many bytes were downloaded.
+/// was saved, how many bytes were downloaded, the HTTP status code, and headers.
 ///
 /// # Examples
 ///
@@ -23,6 +24,10 @@ use crate::backend::Backend;
 ///
 /// println!("Downloaded to: {:?}", response.file_path);
 /// println!("Downloaded {} bytes", response.bytes_downloaded);
+/// println!("Status: {}", response.status);
+/// if let Some(content_type) = response.headers.get("content-type") {
+///     println!("Content-Type: {:?}", content_type);
+/// }
 /// # Ok(())
 /// # }
 /// ```
@@ -32,14 +37,18 @@ pub struct DownloadResponse {
     pub file_path: std::path::PathBuf,
     /// Total bytes downloaded
     pub bytes_downloaded: u64,
+    /// HTTP status code from the response
+    pub status: StatusCode,
+    /// HTTP headers from the response
+    pub headers: HeaderMap,
 }
 
 /// Builder for downloading files from URLs to local disk.
 ///
 /// The `DownloadBuilder` provides a fluent interface for configuring downloads,
-/// including the destination path, progress monitoring, and other options.
-/// Downloads are streamed directly to disk to handle large files efficiently
-/// without loading them entirely into memory.
+/// including the destination path, headers, authentication, progress monitoring,
+/// and other options. Downloads are streamed directly to disk to handle large
+/// files efficiently without loading them entirely into memory.
 ///
 /// # Examples
 ///
@@ -84,11 +93,38 @@ pub struct DownloadResponse {
 /// # Ok(())
 /// # }
 /// ```
+///
+/// ## Authenticated download
+///
+/// ```no_run
+/// # use frakt::{Client, Auth};
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::new()?;
+/// let response = client
+///     .download("https://api.example.com/protected/document.pdf")?
+///     .to_file("protected_document.pdf")
+///     .auth(Auth::bearer("your-api-token"))?
+///     .header("User-Agent", "MyApp/1.0")?
+///     .progress(|downloaded, total| {
+///         if let Some(total) = total {
+///             let percent = (downloaded as f64 / total as f64) * 100.0;
+///             println!("Download progress: {:.1}%", percent);
+///         }
+///     })
+///     .send()
+///     .await?;
+///
+/// println!("Downloaded protected file: {} bytes", response.bytes_downloaded);
+/// # Ok(())
+/// # }
+/// ```
 pub struct DownloadBuilder {
     backend: Backend,
     url: Url,
     file_path: Option<std::path::PathBuf>,
+    headers: HeaderMap,
     progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+    error_for_status: bool,
 }
 
 impl DownloadBuilder {
@@ -98,7 +134,9 @@ impl DownloadBuilder {
             backend,
             url,
             file_path: None,
+            headers: HeaderMap::new(),
             progress_callback: None,
+            error_for_status: true,
         }
     }
 
@@ -175,6 +213,166 @@ impl DownloadBuilder {
         self
     }
 
+    /// Configure whether to return an error for HTTP error status codes (>= 400).
+    ///
+    /// When enabled (the default), responses with status codes >= 400 will return
+    /// an `HttpError` containing the full response without downloading the file.
+    /// When disabled, all status codes are treated as success and the file will be
+    /// downloaded regardless of the status code.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - If `true`, error on status >= 400; if `false`, download regardless
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Download a 404 error page
+    /// let response = client
+    ///     .download("https://httpbin.org/status/404")?
+    ///     .to_file("error.html")
+    ///     .error_for_status(false)
+    ///     .send()
+    ///     .await?;
+    ///
+    /// assert_eq!(response.status, 404);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn error_for_status(mut self, enabled: bool) -> Self {
+        self.error_for_status = enabled;
+        self
+    }
+
+    /// Convenience method to allow error status codes (>= 400) to be downloaded.
+    ///
+    /// This is equivalent to calling `.error_for_status(false)`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Download a 404 error page
+    /// let response = client
+    ///     .download("https://httpbin.org/status/404")?
+    ///     .to_file("error.html")
+    ///     .allow_error_status()
+    ///     .send()
+    ///     .await?;
+    ///
+    /// assert_eq!(response.status, 404);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn allow_error_status(self) -> Self {
+        self.error_for_status(false)
+    }
+
+    /// Add a header to the download request.
+    ///
+    /// Headers are added to the HTTP request that will be sent to the server.
+    /// Multiple headers with the same name will overwrite previous values.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - The header name (can be a string or `HeaderName`)
+    /// * `value` - The header value
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Self)` on success, allowing method chaining.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The header name is invalid (contains invalid characters)
+    /// - The header value is invalid (contains newlines or other invalid characters)
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// let response = client
+    ///     .download("https://api.example.com/protected-file.pdf")?
+    ///     .to_file("downloaded.pdf")
+    ///     .header("Authorization", "Bearer token123")?
+    ///     .header("User-Agent", "MyApp/1.0")?
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn header(
+        mut self,
+        name: impl TryInto<http::HeaderName>,
+        value: impl Into<String>,
+    ) -> crate::Result<Self> {
+        let header_name = name.try_into().map_err(|_| crate::Error::InvalidHeader)?;
+        let header_value =
+            http::HeaderValue::from_str(&value.into()).map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers.insert(header_name, header_value);
+        Ok(self)
+    }
+
+    /// Set authentication for the download request.
+    ///
+    /// Adds an `Authorization` header to the request using the provided authentication
+    /// method. Supports Basic, Bearer, and custom authentication schemes.
+    ///
+    /// # Arguments
+    ///
+    /// * `auth` - The authentication method to use
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Self)` on success, allowing method chaining.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the authentication header value is invalid.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::{Client, Auth};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Bearer token
+    /// let response = client
+    ///     .download("https://api.example.com/protected-file.zip")?
+    ///     .to_file("protected.zip")
+    ///     .auth(Auth::bearer("your-api-token"))?
+    ///     .send()
+    ///     .await?;
+    ///
+    /// // Basic authentication
+    /// let response = client
+    ///     .download("https://secure.example.com/file.pdf")?
+    ///     .to_file("secure.pdf")
+    ///     .auth(Auth::basic("username", "password"))?
+    ///     .send()
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn auth(mut self, auth: crate::Auth) -> crate::Result<Self> {
+        let header_value = http::HeaderValue::from_str(&auth.to_header_value())
+            .map_err(|_| crate::Error::InvalidHeader)?;
+        self.headers
+            .insert(http::header::AUTHORIZATION, header_value);
+        Ok(self)
+    }
+
     /// Execute the download and save the file to disk.
     ///
     /// This method performs the actual download, streaming the content directly
@@ -224,6 +422,8 @@ impl DownloadBuilder {
             crate::Error::Internal("Download file path not specified".to_string())
         })?;
 
+        let error_for_status = self.error_for_status;
+
         // Ensure parent directory exists
         if let Some(parent) = file_path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
@@ -231,14 +431,32 @@ impl DownloadBuilder {
             })?;
         }
 
-        // Create request
-        let request_builder = crate::RequestBuilder::new(http::Method::GET, self.url, self.backend);
+        // Create request - disable error checking since we handle it ourselves
+        let mut request_builder =
+            crate::RequestBuilder::new(http::Method::GET, self.url, self.backend)
+                .allow_error_status();
+
+        // Add headers to the request
+        for (name, value) in &self.headers {
+            request_builder = request_builder.header(
+                name.as_str(),
+                value.to_str().map_err(|_| crate::Error::InvalidHeader)?,
+            )?;
+        }
 
         let response = request_builder.send().await?;
 
+        // Capture status and headers before consuming response
+        let status = response.status();
+        let headers = response.headers().clone();
+
+        // Check for HTTP error status if enabled
+        if error_for_status && status.as_u16() >= 400 {
+            return Err(crate::Error::HttpError(response));
+        }
+
         // Get content length for progress callback before consuming response
-        let total_bytes = response
-            .headers()
+        let total_bytes = headers
             .get("content-length")
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<u64>().ok());
@@ -274,6 +492,8 @@ impl DownloadBuilder {
         Ok(DownloadResponse {
             file_path,
             bytes_downloaded,
+            status,
+            headers,
         })
     }
 }

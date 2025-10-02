@@ -344,7 +344,8 @@ impl ReqwestBackend {
             }
             #[cfg(feature = "json")]
             crate::body::Body::Json { value } => {
-                let json_bytes = serde_json::to_vec(&value)?;
+                let json_bytes =
+                    serde_json::to_vec(&value).map_err(|e| Error::Json(e.to_string()))?;
                 Ok(reqwest::Body::from(json_bytes))
             }
             #[cfg(feature = "multipart")]
@@ -369,7 +370,8 @@ impl ReqwestBackend {
             }
             #[cfg(feature = "json")]
             crate::body::Body::Json { value } => {
-                let json_bytes = serde_json::to_vec(&value)?;
+                let json_bytes =
+                    serde_json::to_vec(&value).map_err(|e| Error::Json(e.to_string()))?;
                 Ok(Bytes::from(json_bytes))
             }
             #[cfg(feature = "multipart")]
@@ -391,7 +393,9 @@ impl ReqwestBackend {
         url: Url,
         file_path: std::path::PathBuf,
         session_identifier: Option<String>,
+        headers: http::HeaderMap,
         progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+        error_for_status: bool,
     ) -> Result<crate::client::download::DownloadResponse> {
         #[cfg(unix)]
         {
@@ -400,7 +404,9 @@ impl ReqwestBackend {
                 url,
                 file_path,
                 session_identifier,
+                headers,
                 progress_callback,
+                error_for_status,
             )
             .await
         }
@@ -412,6 +418,7 @@ impl ReqwestBackend {
                 url,
                 file_path,
                 session_identifier,
+                headers,
                 progress_callback,
             )
             .await

@@ -86,7 +86,7 @@ impl Response {
     #[cfg(feature = "json")]
     pub async fn json<T: serde::de::DeserializeOwned>(self) -> Result<T> {
         let bytes = self.bytes().await?;
-        serde_json::from_slice(&bytes).map_err(Error::Json)
+        serde_json::from_slice(&bytes).map_err(|x| Error::Json(x.to_string()))
     }
 
     /// Get the response body as a stream of bytes

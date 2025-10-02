@@ -187,7 +187,8 @@ impl FoundationBackend {
                             Some(&NSString::from_str("application/json")),
                             &NSString::from_str("Content-Type"),
                         );
-                        let json_bytes = serde_json::to_vec(value)?;
+                        let json_bytes =
+                            serde_json::to_vec(value).map_err(|e| Error::Json(e.to_string()))?;
                         let nsdata = objc2_foundation::NSData::from_vec(json_bytes);
                         req.setHTTPBody(Some(&nsdata));
                     }
@@ -353,7 +354,9 @@ impl FoundationBackend {
         url: Url,
         file_path: std::path::PathBuf,
         session_identifier: Option<String>,
+        headers: http::HeaderMap,
         progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+        _error_for_status: bool,
     ) -> Result<crate::client::download::DownloadResponse> {
         use delegate::background_session::BackgroundSessionDelegate;
         use delegate::shared_context::TaskSharedContext;
@@ -389,12 +392,28 @@ impl FoundationBackend {
             )
         };
 
-        // Create download task
+        // Create download task with headers
         let nsurl = unsafe {
             NSURL::URLWithString(&NSString::from_str(url.as_str())).ok_or(Error::InvalidUrl)?
         };
 
-        let download_task = unsafe { session.downloadTaskWithURL(&nsurl) };
+        let nsrequest = unsafe {
+            let req = NSMutableURLRequest::requestWithURL(&nsurl);
+
+            // Set headers
+            for (name, value) in &headers {
+                req.setValue_forHTTPHeaderField(
+                    Some(&NSString::from_str(
+                        value.to_str().expect("Invalid header value"),
+                    )),
+                    &NSString::from_str(name.as_str()),
+                );
+            }
+
+            req
+        };
+
+        let download_task = unsafe { session.downloadTaskWithRequest(&nsrequest) };
         let task_id = unsafe { download_task.taskIdentifier() } as usize;
 
         // Create task context
@@ -433,9 +452,14 @@ impl FoundationBackend {
             .bytes_downloaded
             .load(std::sync::atomic::Ordering::Relaxed);
 
+        // TODO: Capture actual status and headers from NSURLSessionDownloadTask response
+        // For now, we use placeholder values since background downloads don't easily
+        // expose the HTTP response
         Ok(crate::client::download::DownloadResponse {
             file_path,
             bytes_downloaded,
+            status: http::StatusCode::OK,
+            headers: http::HeaderMap::new(),
         })
     }
 

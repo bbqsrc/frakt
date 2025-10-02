@@ -92,12 +92,14 @@ impl WindowsBackend {
         url: Url,
         file_path: std::path::PathBuf,
         session_identifier: Option<String>,
+        headers: http::HeaderMap,
         progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
     ) -> Result<crate::client::download::DownloadResponse> {
         // Try BITS first if available, fall back to regular download
         if let Some(ref bits_manager) = self.bits_manager {
             // For now, disable progress callbacks with BITS to avoid lifetime issues
             // TODO: Fix progress callback lifetime management
+            // TODO: Pass headers to BITS manager when it supports them
             match bits_manager
                 .start_background_download(url.clone(), file_path.clone(), session_identifier, None)
                 .await
@@ -114,7 +116,7 @@ impl WindowsBackend {
         let request = BackendRequest {
             method: http::Method::GET,
             url,
-            headers: http::HeaderMap::new(),
+            headers, // Use the provided headers
             body: None,
             progress_callback: progress_callback.map(|cb| {
                 std::sync::Arc::new(cb)

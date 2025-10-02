@@ -92,20 +92,15 @@ use frakt::Auth;
 
 // Basic authentication
 let response = client
-    .get("https://api.example.com/protected")
-    .auth(Auth::Basic {
-        username: "user".to_string(),
-        password: "pass".to_string(),
-    })
+    .get("https://api.example.com/protected")?
+    .auth(Auth::basic("user", "pass"))
     .send()
     .await?;
 
 // Bearer token
 let response = client
-    .get("https://api.example.com/protected")
-    .auth(Auth::Bearer {
-        token: "your-token".to_string(),
-    })
+    .get("https://api.example.com/protected")?
+    .auth(Auth::bearer("your-token"))
     .send()
     .await?;
 ```
@@ -114,7 +109,7 @@ let response = client
 
 ```rust
 let response = client
-    .get("https://example.com/large-file.zip")
+    .get("https://example.com/large-file.zip")?
     .progress(|downloaded, total| {
         if let Some(total) = total {
             let percent = (downloaded as f64 / total as f64) * 100.0;
@@ -168,8 +163,8 @@ let client = Client::builder()
     .build()?;
 
 // Cookies are automatically managed
-let response = client.get("https://httpbin.org/cookies/set/session/abc123").send().await?;
-let response = client.get("https://httpbin.org/cookies").send().await?; // Cookie sent automatically
+let response = client.get("https://httpbin.org/cookies/set/session/abc123")?.send().await?;
+let response = client.get("https://httpbin.org/cookies")?.send().await?; // Cookie sent automatically
 ```
 
 ### Proxy Configuration
@@ -186,7 +181,7 @@ let client = Client::builder()
 ```rust
 use tokio::io::AsyncReadExt;
 
-let response = client.get("https://example.com/large-file").send().await?;
+let response = client.get("https://example.com/large-file")?.send().await?;
 let mut stream = response.stream();
 let mut buffer = [0u8; 8192];
 
@@ -205,7 +200,7 @@ Run examples with `cargo run --example <name>`:
 - **`cookies`** - Cookie management and automatic handling
 - **`download`** - Basic file downloads
 - **`file_download`** - Direct-to-file downloads with progress
-- **`file_upload`** - File uploads using Body::from_file()
+- **`file_upload`** - File uploads using upload builder
 - **`multipart`** - Multipart form data uploads
 - **`progress`** - Progress tracking for downloads
 - **`proxy`** - Proxy configuration (HTTP/HTTPS/SOCKS)
@@ -231,7 +226,7 @@ All errors are mapped to Rust's `Result` type:
 ```rust
 use frakt::Error;
 
-match client.get("https://invalid-url").send().await {
+match client.get("https://invalid-url")?.send().await {
     Ok(response) => println!("Success: {}", response.status()),
     Err(Error::InvalidUrl) => println!("Invalid URL"),
     Err(Error::Network(msg)) => println!("Network error: {}", msg),

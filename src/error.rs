@@ -100,6 +100,33 @@ pub enum Error {
     #[error("Request was cancelled")]
     Cancelled,
 
+    /// HTTP error response (4xx or 5xx status code).
+    ///
+    /// This error occurs when the server returns an error status code (>= 400)
+    /// and error checking is enabled. The full Response is included, allowing
+    /// access to the status code, headers, and error response body.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use frakt::{Client, Error};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    /// match client.get("https://httpbin.org/status/404")?.send().await {
+    ///     Err(Error::HttpError(response)) => {
+    ///         println!("HTTP error: {}", response.status());
+    ///         let body = response.text().await?;
+    ///         println!("Error body: {}", body);
+    ///     }
+    ///     Ok(response) => println!("Success: {}", response.status()),
+    ///     Err(e) => return Err(e.into()),
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[error("HTTP error: {}", .0.status())]
+    HttpError(crate::Response),
+
     /// WebSocket connection was closed.
     ///
     /// This error occurs when attempting to use a WebSocket connection
@@ -122,14 +149,14 @@ pub enum Error {
     /// available when the "json" feature is enabled.
     #[cfg(feature = "json")]
     #[error("JSON error: {0}")]
-    Json(#[from] serde_json::Error),
+    Json(String),
 
     /// I/O error.
     ///
     /// This error occurs for file system operations, such as when reading
     /// files for request bodies or writing downloads to disk.
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(String),
 
     /// Response body exceeds maximum size.
     ///
@@ -145,4 +172,10 @@ pub enum Error {
     /// in the library.
     #[error("Internal error: {0}")]
     Internal(String),
+}
+
+impl From<std::io::Error> for Error {
+    fn from(err: std::io::Error) -> Self {
+        Error::Io(err.to_string())
+    }
 }

@@ -15,11 +15,13 @@ pub struct Request {
     pub(crate) body: Option<Body>,
     pub(crate) backend: Backend,
     pub(crate) progress_callback: Option<Arc<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+    pub(crate) error_for_status: bool,
 }
 
 impl Request {
     /// Send the request and get a response
     pub async fn send(self) -> Result<crate::Response> {
+        let error_for_status = self.error_for_status;
         let backend_request = BackendRequest {
             method: self.method,
             url: self.url,
@@ -29,7 +31,14 @@ impl Request {
         };
 
         let backend_response = self.backend.execute(backend_request).await?;
-        Ok(crate::Response::from_backend(backend_response))
+        let response = crate::Response::from_backend(backend_response);
+
+        // Check for HTTP error status if enabled
+        if error_for_status && response.status().as_u16() >= 400 {
+            return Err(crate::Error::HttpError(response));
+        }
+
+        Ok(response)
     }
 }
 
@@ -41,6 +50,7 @@ pub struct RequestBuilder {
     body: Option<Body>,
     backend: Backend,
     progress_callback: Option<Arc<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+    error_for_status: bool,
 }
 
 impl RequestBuilder {
@@ -52,6 +62,7 @@ impl RequestBuilder {
             body: None,
             backend,
             progress_callback: None,
+            error_for_status: true,
         }
     }
 
@@ -116,6 +127,65 @@ impl RequestBuilder {
         self
     }
 
+    /// Configure whether to return an error for HTTP error status codes (>= 400).
+    ///
+    /// When enabled (the default), responses with status codes >= 400 will return
+    /// an `HttpError` containing the full response. When disabled, all status codes
+    /// are treated as success and you must check the status manually.
+    ///
+    /// # Arguments
+    ///
+    /// * `enabled` - If `true`, error on status >= 400; if `false`, accept all status codes
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Allow 404 responses to be treated as success
+    /// let response = client
+    ///     .get("https://httpbin.org/status/404")?
+    ///     .error_for_status(false)
+    ///     .send()
+    ///     .await?;
+    ///
+    /// assert_eq!(response.status(), 404);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn error_for_status(mut self, enabled: bool) -> Self {
+        self.error_for_status = enabled;
+        self
+    }
+
+    /// Convenience method to allow error status codes (>= 400) to be treated as success.
+    ///
+    /// This is equivalent to calling `.error_for_status(false)`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::Client;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::new()?;
+    ///
+    /// // Don't error on 404
+    /// let response = client
+    ///     .get("https://httpbin.org/status/404")?
+    ///     .allow_error_status()
+    ///     .send()
+    ///     .await?;
+    ///
+    /// assert_eq!(response.status(), 404);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn allow_error_status(self) -> Self {
+        self.error_for_status(false)
+    }
+
     /// Send the request and return the response
     pub async fn send(self) -> Result<crate::Response> {
         let request = Request {
@@ -125,6 +195,7 @@ impl RequestBuilder {
             body: self.body,
             backend: self.backend,
             progress_callback: self.progress_callback,
+            error_for_status: self.error_for_status,
         };
         request.send().await
     }

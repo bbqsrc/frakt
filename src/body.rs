@@ -226,7 +226,7 @@ impl Body {
     #[cfg(feature = "json")]
     pub fn json(value: impl serde::Serialize) -> Result<Self, crate::Error> {
         Ok(Self::Json {
-            value: serde_json::to_value(value)?,
+            value: serde_json::to_value(value).map_err(|e| crate::Error::Json(e.to_string()))?,
         })
     }
 
