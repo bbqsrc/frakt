@@ -26,6 +26,9 @@ pub struct BackgroundSessionDelegateIvars {
     pub completion_handlers: Mutex<HashMap<String, Retained<BackgroundCompletionHandler>>>,
 }
 
+unsafe impl Send for BackgroundSessionDelegateIvars {}
+unsafe impl Sync for BackgroundSessionDelegateIvars {}
+
 define_class!(
     /// NSURLSessionDelegate implementation for background sessions
     #[unsafe(super = NSObject)]
