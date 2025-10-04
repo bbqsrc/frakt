@@ -78,6 +78,8 @@ url = "2.5.7"
 base64 = "0.22"
 vampire = { path = "/Users/brendan/git/necessary/vampire/vampire" }#{ git = "https://github.com/bbqsrc/vampire-rs" }
 pathos = "0.3.0"
+cookie_store = "0.22"
+time = { version = "0.3", features = ["formatting"] }
 tempfile = "3.23.0"
 
 [target.'cfg(unix)'.dependencies]
@@ -134,3 +136,4 @@ permissions = [
 [package.metadata.vampire.dependencies]
 "org.chromium.net:cronet-api" = "141.7340.3"
 "org.chromium.net:cronet-embedded" = "141.7340.3"
+"androidx.work:work-runtime" = "2.10.5"

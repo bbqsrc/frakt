@@ -706,7 +706,12 @@ pub fn load_class_from_dex<'a>(env: &mut JNIEnv<'a>, class_name: &str) -> Result
             "(Ljava/lang/String;)Ljava/lang/Class;",
             &[(&class_name_str).into()],
         )
-        .map_err(|e| Error::Internal(format!("Failed to load class '{}' from DEX: {}", class_name, e)))?
+        .map_err(|e| {
+            Error::Internal(format!(
+                "Failed to load class '{}' from DEX: {}",
+                class_name, e
+            ))
+        })?
         .l()
         .map_err(|e| Error::Internal(format!("Failed to convert loaded class: {}", e)))?;
 
@@ -776,9 +781,12 @@ fn ensure_callback_class_loaded(env: &mut JNIEnv) -> Result<()> {
 
     // Store the DEX classloader globally so we can load other classes from the same DEX
     if DEX_CLASS_LOADER.get().is_none() {
-        let loader_ref = env
-            .new_global_ref(&dex_class_loader)
-            .map_err(|e| Error::Internal(format!("Failed to create global ref for classloader: {}", e)))?;
+        let loader_ref = env.new_global_ref(&dex_class_loader).map_err(|e| {
+            Error::Internal(format!(
+                "Failed to create global ref for classloader: {}",
+                e
+            ))
+        })?;
         let _ = DEX_CLASS_LOADER.set(loader_ref);
     }
 

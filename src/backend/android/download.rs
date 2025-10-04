@@ -6,18 +6,21 @@ use jni::{
     objects::{GlobalRef, JClass, JObject, JString},
     sys::jint,
 };
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 use url::Url;
 
 // Global storage for progress callbacks
-static PROGRESS_CALLBACKS: once_cell::sync::Lazy<Mutex<HashMap<i64, Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>>> =
-    once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
+static PROGRESS_CALLBACKS: once_cell::sync::Lazy<
+    Mutex<HashMap<i64, Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>>,
+> = once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
 
 static NEXT_PROGRESS_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
 
-fn register_progress_callback(callback: Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>) -> i64 {
+fn register_progress_callback(
+    callback: Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>,
+) -> i64 {
     let id = NEXT_PROGRESS_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     PROGRESS_CALLBACKS.lock().unwrap().insert(id, callback);
     id
@@ -60,7 +63,7 @@ fn ensure_workmanager_initialized(jvm: &JavaVM) -> Result<()> {
         // Load DexWorkerFactory class from DEX
         let worker_factory_class = crate::backend::android::callback::load_class_from_dex(
             &mut env,
-            "se.brendan.frakt.DexWorkerFactory"
+            "se.brendan.frakt.DexWorkerFactory",
         )?;
 
         // Create DexWorkerFactory instance with DEX classloader
@@ -77,9 +80,9 @@ fn ensure_workmanager_initialized(jvm: &JavaVM) -> Result<()> {
             .find_class("androidx/work/Configuration$Builder")
             .map_err(|e| Error::Internal(format!("Failed to find Configuration.Builder: {}", e)))?;
 
-        let config_builder = env
-            .new_object(config_class, "()V", &[])
-            .map_err(|e| Error::Internal(format!("Failed to create Configuration.Builder: {}", e)))?;
+        let config_builder = env.new_object(config_class, "()V", &[]).map_err(|e| {
+            Error::Internal(format!("Failed to create Configuration.Builder: {}", e))
+        })?;
 
         // Set custom worker factory
         env.call_method(
@@ -110,7 +113,12 @@ fn ensure_workmanager_initialized(jvm: &JavaVM) -> Result<()> {
         .map_err(|e| Error::Internal(format!("Failed to set minimum logging level: {}", e)))?;
 
         let config = env
-            .call_method(&config_builder, "build", "()Landroidx/work/Configuration;", &[])
+            .call_method(
+                &config_builder,
+                "build",
+                "()Landroidx/work/Configuration;",
+                &[],
+            )
             .map_err(|e| Error::Internal(format!("Failed to build Configuration: {}", e)))?
             .l()
             .map_err(|e| Error::Internal(format!("Failed to get Configuration object: {}", e)))?;
@@ -239,7 +247,7 @@ pub async fn execute_background_download(
     // Load DownloadWorker class from our DEX file
     let worker_class = crate::backend::android::callback::load_class_from_dex(
         &mut env,
-        "se.brendan.frakt.DownloadWorker"
+        "se.brendan.frakt.DownloadWorker",
     )?;
 
     // Create OneTimeWorkRequest.Builder
@@ -343,7 +351,12 @@ pub async fn execute_background_download(
     // Create OneTimeWorkRequest.Builder
     let request_builder_class = env
         .find_class("androidx/work/OneTimeWorkRequest$Builder")
-        .map_err(|e| Error::Internal(format!("Failed to find OneTimeWorkRequest.Builder class: {}", e)))?;
+        .map_err(|e| {
+            Error::Internal(format!(
+                "Failed to find OneTimeWorkRequest.Builder class: {}",
+                e
+            ))
+        })?;
 
     let request_builder = env
         .new_object(
@@ -351,7 +364,12 @@ pub async fn execute_background_download(
             "(Ljava/lang/Class;)V",
             &[(&worker_class).into()],
         )
-        .map_err(|e| Error::Internal(format!("Failed to create OneTimeWorkRequest.Builder: {}", e)))?;
+        .map_err(|e| {
+            Error::Internal(format!(
+                "Failed to create OneTimeWorkRequest.Builder: {}",
+                e
+            ))
+        })?;
 
     // Set input data
     env.call_method(
@@ -401,7 +419,10 @@ pub async fn execute_background_download(
     )
     .map_err(|e| Error::Internal(format!("Failed to enqueue work: {}", e)))?;
 
-    println!("📥 Enqueued background download with work ID: {}", work_id_str);
+    println!(
+        "📥 Enqueued background download with work ID: {}",
+        work_id_str
+    );
 
     // Poll for completion
     let start_time = std::time::Instant::now();
@@ -441,7 +462,12 @@ pub async fn execute_background_download(
             .map_err(|e| Error::Internal(format!("Failed to get WorkInfo object: {}", e)))?;
 
         let state = env
-            .call_method(&work_info, "getState", "()Landroidx/work/WorkInfo$State;", &[])
+            .call_method(
+                &work_info,
+                "getState",
+                "()Landroidx/work/WorkInfo$State;",
+                &[],
+            )
             .map_err(|e| Error::Internal(format!("Failed to get work state: {}", e)))?
             .l()
             .map_err(|e| Error::Internal(format!("Failed to get State object: {}", e)))?;
@@ -458,7 +484,10 @@ pub async fn execute_background_download(
             .into();
 
         if iteration % 10 == 0 {
-            println!("📊 Download status: {} (iteration {})", state_str, iteration);
+            println!(
+                "📊 Download status: {} (iteration {})",
+                state_str, iteration
+            );
         }
 
         match state_str.as_str() {
@@ -470,7 +499,10 @@ pub async fn execute_background_download(
                 if let Some(id) = progress_id {
                     unregister_progress_callback(id);
                 }
-                return Err(Error::Internal(format!("Download failed with state: {}", state_str)));
+                return Err(Error::Internal(format!(
+                    "Download failed with state: {}",
+                    state_str
+                )));
             }
             _ => {
                 // Still ENQUEUED, RUNNING, or BLOCKED - continue polling
@@ -484,9 +516,7 @@ pub async fn execute_background_download(
     }
 
     // Get the actual bytes downloaded by checking the file size
-    let bytes_downloaded = std::fs::metadata(&file_path)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let bytes_downloaded = std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
 
     // Return with success status
     Ok(crate::client::download::DownloadResponse {
@@ -654,13 +684,12 @@ fn perform_download_impl(
     });
 
     // Wait for the task to complete in a blocking thread
-    let thread_result = std::thread::spawn(move || {
-        match runtime.block_on(async { handle.await }) {
+    let thread_result =
+        std::thread::spawn(move || match runtime.block_on(async { handle.await }) {
             Ok(result) => result,
             Err(e) => Err(Error::Internal(format!("Task join error: {}", e))),
-        }
-    })
-    .join();
+        })
+        .join();
 
     // Handle thread join errors
     let result = match thread_result {
@@ -675,7 +704,10 @@ fn perform_download_impl(
     // Handle task result
     match result {
         Ok(bytes_downloaded) => {
-            println!("✅ Download completed successfully: {} bytes", bytes_downloaded);
+            println!(
+                "✅ Download completed successfully: {} bytes",
+                bytes_downloaded
+            );
             0
         }
         Err(e) => {
@@ -781,7 +813,11 @@ pub extern "C" fn Java_se_brendan_frakt_DownloadProgressCallback_nativeOnProgres
 ) {
     // Look up the callback
     if let Some(callback) = PROGRESS_CALLBACKS.lock().unwrap().get(&handler_id) {
-        let total = if total_bytes > 0 { Some(total_bytes as u64) } else { None };
+        let total = if total_bytes > 0 {
+            Some(total_bytes as u64)
+        } else {
+            None
+        };
         callback(bytes_downloaded as u64, total);
     }
 }
@@ -803,7 +839,12 @@ fn register_background_downloader_methods(env: &mut JNIEnv, class: &JClass) -> R
     ];
 
     env.register_native_methods(jclass, &native_methods)
-        .map_err(|e| Error::Internal(format!("Failed to register BackgroundDownloader native methods: {}", e)))?;
+        .map_err(|e| {
+            Error::Internal(format!(
+                "Failed to register BackgroundDownloader native methods: {}",
+                e
+            ))
+        })?;
 
     Ok(())
 }
@@ -815,16 +856,20 @@ fn register_progress_callback_methods(env: &mut JNIEnv, class: &JClass) -> Resul
 
     let jclass = unsafe { JClassType::from_raw(class.as_raw()) };
 
-    let native_methods = [
-        NativeMethod {
-            name: "nativeOnProgress".into(),
-            sig: "(JJJ)V".into(),
-            fn_ptr: Java_se_brendan_frakt_DownloadProgressCallback_nativeOnProgress as *mut std::ffi::c_void,
-        },
-    ];
+    let native_methods = [NativeMethod {
+        name: "nativeOnProgress".into(),
+        sig: "(JJJ)V".into(),
+        fn_ptr: Java_se_brendan_frakt_DownloadProgressCallback_nativeOnProgress
+            as *mut std::ffi::c_void,
+    }];
 
     env.register_native_methods(jclass, &native_methods)
-        .map_err(|e| Error::Internal(format!("Failed to register DownloadProgressCallback native methods: {}", e)))?;
+        .map_err(|e| {
+            Error::Internal(format!(
+                "Failed to register DownloadProgressCallback native methods: {}",
+                e
+            ))
+        })?;
 
     Ok(())
 }

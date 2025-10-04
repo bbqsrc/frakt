@@ -19,12 +19,30 @@ fn main() {
 
     // Compile Java sources
     let sources = vec![
-        // Stubs
+        // Cronet stubs
         java_dir.join("stubs/org/chromium/net/UrlRequest.java"),
         java_dir.join("stubs/org/chromium/net/UrlResponseInfo.java"),
         java_dir.join("stubs/org/chromium/net/CronetException.java"),
+        // Android stubs
+        java_dir.join("stubs/android/content/Context.java"),
+        // AndroidX stubs
+        java_dir.join("stubs/androidx/annotation/NonNull.java"),
+        java_dir.join("stubs/androidx/work/Data.java"),
+        java_dir.join("stubs/androidx/work/WorkerParameters.java"),
+        java_dir.join("stubs/androidx/work/ListenableWorker.java"),
+        java_dir.join("stubs/androidx/work/Worker.java"),
+        java_dir.join("stubs/androidx/work/WorkerFactory.java"),
+        java_dir.join("stubs/androidx/work/Configuration.java"),
+        java_dir.join("stubs/androidx/work/WorkInfo.java"),
+        // Guava stubs (for WorkManager)
+        java_dir.join("stubs/com/google/common/util/concurrent/ListenableFuture.java"),
         // Our callback implementation
         java_dir.join("se/brendan/frakt/RustUrlRequestCallback.java"),
+        // WorkManager download components
+        java_dir.join("se/brendan/frakt/DownloadWorker.java"),
+        java_dir.join("se/brendan/frakt/DownloadProgressCallback.java"),
+        java_dir.join("se/brendan/frakt/DexWorkerFactory.java"),
+        java_dir.join("se/brendan/frakt/BackgroundDownloader.java"),
     ];
 
     let status = Command::new(&javac)
@@ -63,18 +81,38 @@ fn convert_to_dex(class_dir: &Path) {
 
     let dex_output = class_dir.join("classes.dex");
 
-    // Run d8 to convert class files to DEX
-    let status = Command::new(&d8)
+    // Collect all .class files recursively
+    let mut class_files = Vec::new();
+    fn collect_class_files(dir: &Path, files: &mut Vec<PathBuf>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    collect_class_files(&path, files);
+                } else if path.extension().and_then(|s| s.to_str()) == Some("class") {
+                    files.push(path);
+                }
+            }
+        }
+    }
+    collect_class_files(&class_dir, &mut class_files);
+
+    // Run d8 to convert all class files to DEX
+    let mut d8_command = Command::new(&d8);
+    d8_command
         .arg("--output")
         .arg(class_dir)
         .arg("--min-api")
-        .arg("21") // Minimum API level
-        .arg(class_dir.join("se/brendan/frakt/RustUrlRequestCallback.class"))
-        .status()
-        .expect("Failed to run d8");
+        .arg("21"); // Minimum API level
+
+    for class_file in &class_files {
+        d8_command.arg(class_file);
+    }
+
+    let status = d8_command.status().expect("Failed to run d8");
 
     if !status.success() {
-        panic!("d8 failed to convert class to DEX");
+        panic!("d8 failed to convert class files to DEX");
     }
 
     println!("cargo:warning=Converted to DEX: {}", dex_output.display());
