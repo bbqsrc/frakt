@@ -309,6 +309,9 @@ static CALLBACK_COUNTER: std::sync::atomic::AtomicI64 = std::sync::atomic::Atomi
 /// Global storage for the loaded callback class
 static CALLBACK_CLASS: OnceCell<GlobalRef> = OnceCell::new();
 
+/// Global storage for the DEX class loader (can load any class from our DEX)
+static DEX_CLASS_LOADER: OnceCell<GlobalRef> = OnceCell::new();
+
 /// Register a callback handler and return its ID
 pub fn register_callback_handler(handler: CallbackHandler) -> jlong {
     let id = CALLBACK_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -667,6 +670,50 @@ pub extern "C" fn Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnFailed(
 /// Compiled from java/se/brendan/frakt/RustUrlRequestCallback.java and converted to DEX by build.rs
 const RUST_CALLBACK_DEX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/classes.dex"));
 
+/// Get the DEX classloader GlobalRef (ensures it's initialized first)
+pub fn get_dex_classloader(env: &mut JNIEnv) -> Result<&'static GlobalRef> {
+    // Ensure DEX classloader is initialized
+    ensure_callback_class_loaded(env)?;
+
+    // Get the stored DEX classloader
+    let dex_classloader = DEX_CLASS_LOADER
+        .get()
+        .ok_or_else(|| Error::Internal("DEX classloader not initialized".to_string()))?;
+
+    Ok(dex_classloader)
+}
+
+/// Load a class from our embedded DEX file
+/// Class name should use dot notation, e.g. "se.brendan.frakt.DownloadWorker"
+pub fn load_class_from_dex<'a>(env: &mut JNIEnv<'a>, class_name: &str) -> Result<JClass<'a>> {
+    // Ensure DEX classloader is initialized
+    ensure_callback_class_loaded(env)?;
+
+    // Get the stored DEX classloader
+    let dex_classloader = DEX_CLASS_LOADER
+        .get()
+        .ok_or_else(|| Error::Internal("DEX classloader not initialized".to_string()))?;
+
+    // Load the class from the DEX classloader
+    let class_name_str = env
+        .new_string(class_name)
+        .map_err(|e| Error::Internal(format!("Failed to create class name string: {}", e)))?;
+
+    let loaded_class = env
+        .call_method(
+            dex_classloader.as_obj(),
+            "loadClass",
+            "(Ljava/lang/String;)Ljava/lang/Class;",
+            &[(&class_name_str).into()],
+        )
+        .map_err(|e| Error::Internal(format!("Failed to load class '{}' from DEX: {}", class_name, e)))?
+        .l()
+        .map_err(|e| Error::Internal(format!("Failed to convert loaded class: {}", e)))?;
+
+    // Convert to JClass
+    Ok(JClass::from(loaded_class))
+}
+
 /// Ensure the RustUrlRequestCallback class is loaded
 fn ensure_callback_class_loaded(env: &mut JNIEnv) -> Result<()> {
     // Check if we've already loaded the class
@@ -726,6 +773,14 @@ fn ensure_callback_class_loaded(env: &mut JNIEnv) -> Result<()> {
             &[(&byte_buffer).into(), (&parent_loader).into()],
         )
         .map_err(|e| Error::Internal(format!("Failed to create InMemoryDexClassLoader: {}", e)))?;
+
+    // Store the DEX classloader globally so we can load other classes from the same DEX
+    if DEX_CLASS_LOADER.get().is_none() {
+        let loader_ref = env
+            .new_global_ref(&dex_class_loader)
+            .map_err(|e| Error::Internal(format!("Failed to create global ref for classloader: {}", e)))?;
+        let _ = DEX_CLASS_LOADER.set(loader_ref);
+    }
 
     // Load the class from the DEX class loader
     let class_name = env

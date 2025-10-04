@@ -522,10 +522,36 @@ impl Client {
     /// # Ok(())
     /// # }
     /// ```
+    /// Get access to the cookie jar for this client, if cookies are enabled.
+    ///
+    /// Returns `None` if cookies were not enabled during client construction.
+    /// Use `.use_cookies(true)` on the builder to enable cookie support.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use frakt::{Client, Cookie};
+    /// # #[tokio::main]
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = Client::builder()
+    ///     .use_cookies(true)
+    ///     .build()?;
+    ///
+    /// if let Some(jar) = client.cookie_jar() {
+    ///     // Add a custom cookie
+    ///     let cookie = Cookie::new("session", "abc123")
+    ///         .domain("example.com");
+    ///     jar.add_cookie(cookie)?;
+    ///
+    ///     // Get all cookies
+    ///     let cookies = jar.all_cookies();
+    ///     println!("Found {} cookies", cookies.len());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn cookie_jar(&self) -> Option<&crate::CookieJar> {
-        // For now, return None since cookie jars are handled internally by backends
-        // This could be extended in the future to expose the backend's cookie jar
-        None
+        self.backend.cookie_jar()
     }
 }
 

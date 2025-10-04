@@ -7,9 +7,6 @@ mod jni_bindings;
 mod request;
 mod response;
 
-pub mod cookies;
-pub use cookies::AndroidCookieStorage;
-
 #[cfg(test)]
 mod tests;
 
@@ -35,6 +32,14 @@ static CRONET_ENGINE: Lazy<Arc<GlobalRef>> = Lazy::new(|| {
     Arc::new(engine)
 });
 
+// Global Tokio runtime instance - created once for all async operations
+static TOKIO_RUNTIME: Lazy<tokio::runtime::Runtime> = Lazy::new(|| {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("Failed to create global tokio runtime")
+});
+
 /// Get the global JavaVM instance
 pub(crate) fn get_global_vm() -> Result<&'static JavaVM> {
     Ok(*ANDROID_JVM)
@@ -43,6 +48,11 @@ pub(crate) fn get_global_vm() -> Result<&'static JavaVM> {
 /// Get the global Cronet engine instance
 fn get_global_cronet_engine() -> Arc<GlobalRef> {
     CRONET_ENGINE.clone()
+}
+
+/// Get the global tokio runtime instance
+pub(crate) fn get_runtime() -> &'static tokio::runtime::Runtime {
+    &TOKIO_RUNTIME
 }
 
 /// Start NetLog for debugging network issues
@@ -399,7 +409,7 @@ pub fn test_dns(hostname: &str) -> Result<String> {
 pub struct AndroidBackend {
     pub(crate) jvm: &'static JavaVM,
     cronet_engine: Arc<GlobalRef>,
-    cookie_storage: Option<AndroidCookieStorage>,
+    cookie_storage: Option<Arc<crate::backend::CookieStoreImpl>>,
     config: BackendConfig,
 }
 
@@ -424,7 +434,7 @@ impl AndroidBackend {
 
         // Create cookie storage if cookies are enabled
         let cookie_storage = if config.use_cookies.unwrap_or(false) {
-            Some(AndroidCookieStorage::new()?)
+            Some(Arc::new(crate::backend::CookieStoreImpl::new()))
         } else {
             None
         };

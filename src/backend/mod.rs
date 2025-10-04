@@ -1,5 +1,6 @@
 //! Backend abstraction for HTTP client implementations
 
+pub mod cookie_store_impl;
 pub mod types;
 
 #[cfg(target_vendor = "apple")]
@@ -15,6 +16,8 @@ pub mod android;
 pub use android::{check_permission, list_permissions, start_netlog, stop_netlog, test_dns};
 
 pub mod reqwest;
+
+pub use cookie_store_impl::CookieStoreImpl;
 
 use crate::{
     BackendType, Result,
@@ -252,12 +255,9 @@ pub enum CookieStorage {
     #[cfg(target_vendor = "apple")]
     Foundation(foundation::FoundationCookieStorage),
 
-    /// Native Android implementation using CookieManager
-    #[cfg(target_os = "android")]
-    Android(android::AndroidCookieStorage),
-
-    /// Cross-platform implementation using reqwest cookie jar
-    Reqwest(reqwest::ReqwestCookieStorage),
+    /// RFC 6265 compliant implementation using cookie_store
+    /// Used by Windows, Android, and Reqwest backends
+    CookieStore(CookieStoreImpl),
 }
 
 impl CookieStorage {
@@ -268,27 +268,14 @@ impl CookieStorage {
             Backend::Foundation(_) => {
                 CookieStorage::Foundation(foundation::FoundationCookieStorage::new())
             }
-            #[cfg(all(target_os = "android", not(target_vendor = "apple")))]
-            Backend::Android(android) => {
-                CookieStorage::Android(android::AndroidCookieStorage::new().unwrap_or_else(|_| {
-                    tracing::warn!(
-                        "Failed to create Android cookie storage, falling back to reqwest"
-                    );
-                    // This won't compile as we can't mix enum variants, but shows the intent
-                    // In practice, you'd need a Result return type or handle this differently
-                    panic!("Android cookie storage creation failed")
-                }))
-            }
+            // All non-Apple backends use the unified CookieStore implementation
             #[cfg(windows)]
-            Backend::Windows(_) => {
-                // Windows backend does not have a native cookie storage implementation
-                // Fallback to reqwest
-                tracing::warn!(
-                    "Windows backend does not support native cookie storage, using reqwest"
-                );
-                CookieStorage::Reqwest(reqwest::ReqwestCookieStorage::new())
-            }
-            Backend::Reqwest(_) => CookieStorage::Reqwest(reqwest::ReqwestCookieStorage::new()),
+            Backend::Windows(_) => CookieStorage::CookieStore(CookieStoreImpl::new()),
+
+            #[cfg(target_os = "android")]
+            Backend::Android(_) => CookieStorage::CookieStore(CookieStoreImpl::new()),
+
+            Backend::Reqwest(_) => CookieStorage::CookieStore(CookieStoreImpl::new()),
         }
     }
 
@@ -306,10 +293,7 @@ impl CookieStorage {
             #[cfg(target_vendor = "apple")]
             CookieStorage::Foundation(storage) => storage.all_cookies(),
 
-            #[cfg(target_os = "android")]
-            CookieStorage::Android(storage) => storage.all_cookies(),
-
-            CookieStorage::Reqwest(storage) => storage.all_cookies(),
+            CookieStorage::CookieStore(storage) => storage.all_cookies(),
         }
     }
 
@@ -319,10 +303,7 @@ impl CookieStorage {
             #[cfg(target_vendor = "apple")]
             CookieStorage::Foundation(storage) => storage.cookies_for_url(url),
 
-            #[cfg(target_os = "android")]
-            CookieStorage::Android(storage) => storage.cookies_for_url(url),
-
-            CookieStorage::Reqwest(storage) => storage.cookies_for_url(url),
+            CookieStorage::CookieStore(storage) => storage.cookies_for_url(url),
         }
     }
 
@@ -332,10 +313,7 @@ impl CookieStorage {
             #[cfg(target_vendor = "apple")]
             CookieStorage::Foundation(storage) => storage.add_cookie(cookie),
 
-            #[cfg(target_os = "android")]
-            CookieStorage::Android(storage) => storage.add_cookie(cookie),
-
-            CookieStorage::Reqwest(storage) => storage.add_cookie(cookie),
+            CookieStorage::CookieStore(storage) => storage.add_cookie(cookie),
         }
     }
 
@@ -345,10 +323,7 @@ impl CookieStorage {
             #[cfg(target_vendor = "apple")]
             CookieStorage::Foundation(storage) => storage.remove_cookie(cookie),
 
-            #[cfg(target_os = "android")]
-            CookieStorage::Android(storage) => storage.remove_cookie(cookie),
-
-            CookieStorage::Reqwest(storage) => storage.remove_cookie(cookie),
+            CookieStorage::CookieStore(storage) => storage.remove_cookie(cookie),
         }
     }
 
@@ -358,10 +333,7 @@ impl CookieStorage {
             #[cfg(target_vendor = "apple")]
             CookieStorage::Foundation(storage) => storage.clear(),
 
-            #[cfg(target_os = "android")]
-            CookieStorage::Android(storage) => storage.clear(),
-
-            CookieStorage::Reqwest(storage) => storage.clear(),
+            CookieStorage::CookieStore(storage) => storage.clear(),
         }
     }
 
@@ -371,10 +343,7 @@ impl CookieStorage {
             #[cfg(target_vendor = "apple")]
             CookieStorage::Foundation(storage) => storage.set_cookie_accept_policy(policy),
 
-            #[cfg(target_os = "android")]
-            CookieStorage::Android(storage) => storage.set_cookie_accept_policy(policy),
-
-            CookieStorage::Reqwest(storage) => storage.set_cookie_accept_policy(policy),
+            CookieStorage::CookieStore(storage) => storage.set_cookie_accept_policy(policy),
         }
     }
 }

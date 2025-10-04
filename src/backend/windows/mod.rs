@@ -1,13 +1,11 @@
 //! Windows backend using WinRT HTTP and BITS
 
 pub mod bits;
-pub mod cookies;
 pub mod error;
 pub mod http_client;
 pub mod websocket;
 
 pub use bits::BitsDownloadManager;
-pub use cookies::WindowsCookieStorage;
 pub use error::*;
 pub use websocket::{WindowsWebSocket, WindowsWebSocketBuilder};
 
@@ -23,8 +21,8 @@ pub struct WindowsBackend {
     user_agent: String,
     /// Optional cookie jar for this backend
     cookie_jar: Option<crate::CookieJar>,
-    /// Windows cookie storage
-    cookie_storage: Option<cookies::WindowsCookieStorage>,
+    /// Cookie storage using cookie_store
+    cookie_storage: Option<std::sync::Arc<crate::backend::CookieStoreImpl>>,
     /// Default headers to add to all requests
     default_headers: Option<http::HeaderMap>,
     /// Request timeout
@@ -58,7 +56,7 @@ impl WindowsBackend {
 
         // Create cookie storage if cookies are enabled
         let cookie_storage = if config.use_cookies.unwrap_or(false) {
-            cookies::WindowsCookieStorage::new().ok()
+            Some(std::sync::Arc::new(crate::backend::CookieStoreImpl::new()))
         } else {
             None
         };

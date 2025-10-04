@@ -1,8 +1,6 @@
 //! Reqwest backend for cross-platform HTTP support
 
 mod background;
-pub mod cookies;
-pub use cookies::ReqwestCookieStorage;
 
 pub mod websocket;
 pub use websocket::{ReqwestWebSocket, ReqwestWebSocketBuilder};

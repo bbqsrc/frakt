@@ -1,12 +1,143 @@
-//! Android background downloads using DownloadManager
+// Android background downloads using WorkManager
 
 use crate::{Error, Result};
-use jni::{JNIEnv, JavaVM, objects::GlobalRef, objects::JObject};
+use jni::{
+    JNIEnv, JavaVM,
+    objects::{GlobalRef, JClass, JObject, JString},
+    sys::jint,
+};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 use url::Url;
 
-/// Execute a background download using Android's DownloadManager
+// Global storage for progress callbacks
+static PROGRESS_CALLBACKS: once_cell::sync::Lazy<Mutex<HashMap<i64, Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
+
+static NEXT_PROGRESS_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
+
+fn register_progress_callback(callback: Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>) -> i64 {
+    let id = NEXT_PROGRESS_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    PROGRESS_CALLBACKS.lock().unwrap().insert(id, callback);
+    id
+}
+
+fn unregister_progress_callback(id: i64) {
+    PROGRESS_CALLBACKS.lock().unwrap().remove(&id);
+}
+
+/// Initialize WorkManager if not already initialized
+fn ensure_workmanager_initialized(jvm: &JavaVM) -> Result<()> {
+    let mut env = jvm
+        .attach_current_thread()
+        .map_err(|e| Error::Internal(format!("Failed to attach to JVM thread: {}", e)))?;
+
+    let context = get_application_context(&jvm)?;
+
+    // Try to get WorkManager instance to see if it's initialized
+    let work_manager_class = env
+        .find_class("androidx/work/WorkManager")
+        .map_err(|e| Error::Internal(format!("Failed to find WorkManager class: {}", e)))?;
+
+    // Try getInstance - if it throws, we need to initialize
+    let get_instance_result = env.call_static_method(
+        &work_manager_class,
+        "getInstance",
+        "(Landroid/content/Context;)Landroidx/work/WorkManager;",
+        &[(&context).into()],
+    );
+
+    // Check if there was an exception (WorkManager not initialized)
+    if env.exception_check().unwrap_or(false) {
+        env.exception_clear().ok();
+
+        println!("🔧 Initializing WorkManager with custom DexWorkerFactory...");
+
+        // Get DEX classloader from callback module
+        let dex_classloader_ref = crate::backend::android::callback::get_dex_classloader(&mut env)?;
+
+        // Load DexWorkerFactory class from DEX
+        let worker_factory_class = crate::backend::android::callback::load_class_from_dex(
+            &mut env,
+            "se.brendan.frakt.DexWorkerFactory"
+        )?;
+
+        // Create DexWorkerFactory instance with DEX classloader
+        let worker_factory = env
+            .new_object(
+                worker_factory_class,
+                "(Ljava/lang/ClassLoader;)V",
+                &[(dex_classloader_ref.as_obj()).into()],
+            )
+            .map_err(|e| Error::Internal(format!("Failed to create DexWorkerFactory: {}", e)))?;
+
+        // Create WorkManager Configuration with custom worker factory
+        let config_class = env
+            .find_class("androidx/work/Configuration$Builder")
+            .map_err(|e| Error::Internal(format!("Failed to find Configuration.Builder: {}", e)))?;
+
+        let config_builder = env
+            .new_object(config_class, "()V", &[])
+            .map_err(|e| Error::Internal(format!("Failed to create Configuration.Builder: {}", e)))?;
+
+        // Set custom worker factory
+        env.call_method(
+            &config_builder,
+            "setWorkerFactory",
+            "(Landroidx/work/WorkerFactory;)Landroidx/work/Configuration$Builder;",
+            &[(&worker_factory).into()],
+        )
+        .map_err(|e| Error::Internal(format!("Failed to set worker factory: {}", e)))?;
+
+        // Set minimum logging level to DEBUG
+        let log_class = env
+            .find_class("android/util/Log")
+            .map_err(|e| Error::Internal(format!("Failed to find Log class: {}", e)))?;
+
+        let debug_level = env
+            .get_static_field(&log_class, "DEBUG", "I")
+            .map_err(|e| Error::Internal(format!("Failed to get DEBUG constant: {}", e)))?
+            .i()
+            .map_err(|e| Error::Internal(format!("Failed to convert DEBUG to int: {}", e)))?;
+
+        env.call_method(
+            &config_builder,
+            "setMinimumLoggingLevel",
+            "(I)Landroidx/work/Configuration$Builder;",
+            &[(debug_level).into()],
+        )
+        .map_err(|e| Error::Internal(format!("Failed to set minimum logging level: {}", e)))?;
+
+        let config = env
+            .call_method(&config_builder, "build", "()Landroidx/work/Configuration;", &[])
+            .map_err(|e| Error::Internal(format!("Failed to build Configuration: {}", e)))?
+            .l()
+            .map_err(|e| Error::Internal(format!("Failed to get Configuration object: {}", e)))?;
+
+        // Initialize WorkManager
+        env.call_static_method(
+            work_manager_class,
+            "initialize",
+            "(Landroid/content/Context;Landroidx/work/Configuration;)V",
+            &[(&context).into(), (&config).into()],
+        )
+        .map_err(|e| Error::Internal(format!("Failed to initialize WorkManager: {}", e)))?;
+
+        println!("✅ WorkManager initialized successfully with DexWorkerFactory");
+    }
+
+    // Pre-register DownloadProgressCallback native methods
+    let progress_class = crate::backend::android::callback::load_class_from_dex(
+        &mut env,
+        "se.brendan.frakt.DownloadProgressCallback",
+    )?;
+    register_progress_callback_methods(&mut env, &progress_class)?;
+
+    Ok(())
+}
+
+/// Execute a background download using Android's WorkManager
 pub async fn execute_background_download(
     jvm: &JavaVM,
     url: Url,
@@ -16,463 +147,366 @@ pub async fn execute_background_download(
     _error_for_status: bool,
     progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
 ) -> Result<crate::client::download::DownloadResponse> {
+    // Ensure WorkManager is initialized
+    ensure_workmanager_initialized(jvm)?;
+
     let mut env = jvm
         .attach_current_thread()
         .map_err(|e| Error::Internal(format!("Failed to attach to JVM thread: {}", e)))?;
 
-    // Get DownloadManager system service
-    let download_manager_global = get_download_manager(&jvm)?;
+    // Get application context
+    let context = get_application_context(&jvm)?;
 
-    // Create download request
-    let request_global = create_download_request(&jvm, &url, &file_path)?;
+    // Get WorkManager instance
+    let work_manager_class = env
+        .find_class("androidx/work/WorkManager")
+        .map_err(|e| Error::Internal(format!("Failed to find WorkManager class: {}", e)))?;
 
-    // Configure the download request
-    configure_download_request(&jvm, &request_global, &session_identifier)?;
-
-    // Enqueue the download
-    let download_id = env
-        .call_method(
-            download_manager_global.as_obj(),
-            "enqueue",
-            "(Landroid/app/DownloadManager$Request;)J",
-            &[request_global.as_obj().into()],
-        )
-        .map_err(|e| Error::Internal(format!("Failed to enqueue download: {}", e)))?
-        .j()
-        .map_err(|e| Error::Internal(format!("Failed to get download ID: {}", e)))?;
-
-    // Create download response with monitoring
-    create_download_response(
-        jvm,
-        download_manager_global,
-        download_id,
-        file_path,
-        progress_callback,
-    )
-    .await
-}
-
-/// Get the DownloadManager system service
-fn get_download_manager(jvm: &JavaVM) -> Result<GlobalRef> {
-    let mut env = jvm
-        .attach_current_thread()
-        .map_err(|e| Error::Internal(format!("Failed to attach to JVM thread: {}", e)))?;
-
-    // Get application context inline to avoid borrowing issues
-    let activity_thread_class = env
-        .find_class("android/app/ActivityThread")
-        .map_err(|e| Error::Internal(format!("Failed to find ActivityThread class: {}", e)))?;
-
-    let current_activity_thread = env
+    let work_manager = env
         .call_static_method(
-            activity_thread_class,
-            "currentActivityThread",
-            "()Landroid/app/ActivityThread;",
-            &[],
+            work_manager_class,
+            "getInstance",
+            "(Landroid/content/Context;)Landroidx/work/WorkManager;",
+            &[(&context).into()],
         )
-        .map_err(|e| Error::Internal(format!("Failed to get current ActivityThread: {}", e)))?;
-
-    let context = env
-        .call_method(
-            current_activity_thread.l().unwrap(),
-            "getApplication",
-            "()Landroid/app/Application;",
-            &[],
-        )
-        .map_err(|e| Error::Internal(format!("Failed to get application context: {}", e)))?;
-
-    // Get the DownloadManager service
-    let download_service_string = env
-        .new_string("download")
-        .map_err(|e| Error::Internal(format!("Failed to create download service string: {}", e)))?;
-
-    let download_manager = env
-        .call_method(
-            context.l().unwrap(),
-            "getSystemService",
-            "(Ljava/lang/String;)Ljava/lang/Object;",
-            &[(&download_service_string).into()],
-        )
-        .map_err(|e| Error::Internal(format!("Failed to get DownloadManager service: {}", e)))?
+        .map_err(|e| Error::Internal(format!("Failed to get WorkManager instance: {}", e)))?
         .l()
-        .map_err(|e| Error::Internal(format!("Failed to get DownloadManager object: {}", e)))?;
+        .map_err(|e| Error::Internal(format!("Failed to get WorkManager object: {}", e)))?;
 
-    env.new_global_ref(&download_manager).map_err(|e| {
-        Error::Internal(format!(
-            "Failed to create global ref for DownloadManager: {}",
-            e
-        ))
-    })
-}
+    // Build input data
+    let data_builder_class = env
+        .find_class("androidx/work/Data$Builder")
+        .map_err(|e| Error::Internal(format!("Failed to find Data.Builder class: {}", e)))?;
 
-/// Create a DownloadManager.Request
-fn create_download_request(jvm: &JavaVM, url: &Url, file_path: &PathBuf) -> Result<GlobalRef> {
-    let mut env = jvm
-        .attach_current_thread()
-        .map_err(|e| Error::Internal(format!("Failed to attach to JVM thread: {}", e)))?;
-    // Create URI object for the URL
-    let url_string = env
+    let data_builder = env
+        .new_object(data_builder_class, "()V", &[])
+        .map_err(|e| Error::Internal(format!("Failed to create Data.Builder: {}", e)))?;
+
+    // Add URL
+    let url_key = env
+        .new_string("url")
+        .map_err(|e| Error::Internal(format!("Failed to create URL key string: {}", e)))?;
+    let url_value = env
         .new_string(url.as_str())
-        .map_err(|e| Error::Internal(format!("Failed to create URL string: {}", e)))?;
+        .map_err(|e| Error::Internal(format!("Failed to create URL value string: {}", e)))?;
+    env.call_method(
+        &data_builder,
+        "putString",
+        "(Ljava/lang/String;Ljava/lang/String;)Landroidx/work/Data$Builder;",
+        &[(&url_key).into(), (&url_value).into()],
+    )
+    .map_err(|e| Error::Internal(format!("Failed to put URL in data: {}", e)))?;
 
-    let uri = env
-        .call_static_method(
-            "android/net/Uri",
-            "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[(&url_string).into()],
-        )
-        .map_err(|e| Error::Internal(format!("Failed to parse URL: {}", e)))?
+    // Add file path
+    let path_key = env
+        .new_string("file_path")
+        .map_err(|e| Error::Internal(format!("Failed to create path key string: {}", e)))?;
+    let path_value = env
+        .new_string(file_path.to_string_lossy().as_ref())
+        .map_err(|e| Error::Internal(format!("Failed to create path value string: {}", e)))?;
+    env.call_method(
+        &data_builder,
+        "putString",
+        "(Ljava/lang/String;Ljava/lang/String;)Landroidx/work/Data$Builder;",
+        &[(&path_key).into(), (&path_value).into()],
+    )
+    .map_err(|e| Error::Internal(format!("Failed to put file path in data: {}", e)))?;
+
+    // Serialize headers to JSON
+    let headers_json =
+        serde_json::to_string(&headers_to_map(&headers)).unwrap_or_else(|_| "{}".to_string());
+    let headers_key = env
+        .new_string("headers")
+        .map_err(|e| Error::Internal(format!("Failed to create headers key string: {}", e)))?;
+    let headers_value = env
+        .new_string(&headers_json)
+        .map_err(|e| Error::Internal(format!("Failed to create headers value string: {}", e)))?;
+    env.call_method(
+        &data_builder,
+        "putString",
+        "(Ljava/lang/String;Ljava/lang/String;)Landroidx/work/Data$Builder;",
+        &[(&headers_key).into(), (&headers_value).into()],
+    )
+    .map_err(|e| Error::Internal(format!("Failed to put headers in data: {}", e)))?;
+
+    // Build data
+    let input_data = env
+        .call_method(&data_builder, "build", "()Landroidx/work/Data;", &[])
+        .map_err(|e| Error::Internal(format!("Failed to build input data: {}", e)))?
         .l()
-        .map_err(|e| Error::Internal(format!("Failed to get URI object: {}", e)))?;
+        .map_err(|e| Error::Internal(format!("Failed to get Data object: {}", e)))?;
 
-    // Create DownloadManager.Request
-    let request_class = env
-        .find_class("android/app/DownloadManager$Request")
+    // Load DownloadWorker class from our DEX file
+    let worker_class = crate::backend::android::callback::load_class_from_dex(
+        &mut env,
+        "se.brendan.frakt.DownloadWorker"
+    )?;
+
+    // Create OneTimeWorkRequest.Builder
+    let request_builder_class = env
+        .find_class("androidx/work/OneTimeWorkRequest$Builder")
         .map_err(|e| {
             Error::Internal(format!(
-                "Failed to find DownloadManager.Request class: {}",
+                "Failed to find OneTimeWorkRequest.Builder class: {}",
                 e
             ))
         })?;
 
-    let request = env
-        .new_object(request_class, "(Landroid/net/Uri;)V", &[(&uri).into()])
-        .map_err(|e| Error::Internal(format!("Failed to create DownloadManager.Request: {}", e)))?;
-
-    // Ensure parent directory exists
-    if let Some(parent) = file_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| Error::Internal(format!("Failed to create parent directory: {}", e)))?;
-    }
-
-    // Create file:// URI for the destination
-    let file_uri_string = format!("file://{}", file_path.to_string_lossy());
-    let destination_uri_string = env
-        .new_string(&file_uri_string)
-        .map_err(|e| Error::Internal(format!("Failed to create destination URI string: {}", e)))?;
-
-    let destination_uri = env
-        .call_static_method(
-            "android/net/Uri",
-            "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            &[(&destination_uri_string).into()],
+    let request_builder = env
+        .new_object(
+            request_builder_class,
+            "(Ljava/lang/Class;)V",
+            &[(&worker_class).into()],
         )
-        .map_err(|e| Error::Internal(format!("Failed to parse destination URI: {}", e)))?
+        .map_err(|e| {
+            Error::Internal(format!(
+                "Failed to create OneTimeWorkRequest.Builder: {}",
+                e
+            ))
+        })?;
+
+    // Set input data
+    env.call_method(
+        &request_builder,
+        "setInputData",
+        "(Landroidx/work/Data;)Landroidx/work/WorkRequest$Builder;",
+        &[(&input_data).into()],
+    )
+    .map_err(|e| Error::Internal(format!("Failed to set input data: {}", e)))?;
+
+    // Build work request
+    let work_request = env
+        .call_method(
+            &request_builder,
+            "build",
+            "()Landroidx/work/WorkRequest;",
+            &[],
+        )
+        .map_err(|e| Error::Internal(format!("Failed to build work request: {}", e)))?
         .l()
-        .map_err(|e| Error::Internal(format!("Failed to get destination URI object: {}", e)))?;
+        .map_err(|e| Error::Internal(format!("Failed to get WorkRequest object: {}", e)))?;
 
-    env.call_method(
-        &request,
-        "setDestinationUri",
-        "(Landroid/net/Uri;)Landroid/app/DownloadManager$Request;",
-        &[(&destination_uri).into()],
-    )
-    .map_err(|e| Error::Internal(format!("Failed to set download destination: {}", e)))?;
+    // Get work ID before enqueueing
+    let work_id = env
+        .call_method(&work_request, "getId", "()Ljava/util/UUID;", &[])
+        .map_err(|e| Error::Internal(format!("Failed to get work ID: {}", e)))?
+        .l()
+        .map_err(|e| Error::Internal(format!("Failed to get UUID object: {}", e)))?;
 
-    env.new_global_ref(&request).map_err(|e| {
-        Error::Internal(format!(
-            "Failed to create global ref for download request: {}",
-            e
-        ))
-    })
-}
+    let work_id_string = env
+        .call_method(&work_id, "toString", "()Ljava/lang/String;", &[])
+        .map_err(|e| Error::Internal(format!("Failed to convert UUID to string: {}", e)))?
+        .l()
+        .map_err(|e| Error::Internal(format!("Failed to get string object: {}", e)))?;
 
-/// Configure the download request with additional settings
-fn configure_download_request(
-    jvm: &JavaVM,
-    request: &GlobalRef,
-    session_identifier: &Option<String>,
-) -> Result<()> {
-    let mut env = jvm
-        .attach_current_thread()
-        .map_err(|e| Error::Internal(format!("Failed to attach to JVM thread: {}", e)))?;
-    // Set notification visibility
-    env.call_method(
-        request.as_obj(),
-        "setNotificationVisibility",
-        "(I)Landroid/app/DownloadManager$Request;",
-        &[1i32.into()], // VISIBILITY_VISIBLE
-    )
-    .map_err(|e| Error::Internal(format!("Failed to set notification visibility: {}", e)))?;
+    let work_id_str: String = env
+        .get_string(&JString::from(work_id_string))
+        .map_err(|e| Error::Internal(format!("Failed to get work ID string: {}", e)))?
+        .into();
 
-    // Allow download over mobile network
-    env.call_method(
-        request.as_obj(),
-        "setAllowedNetworkTypes",
-        "(I)Landroid/app/DownloadManager$Request;",
-        &[3i32.into()], // NETWORK_WIFI | NETWORK_MOBILE
-    )
-    .map_err(|e| Error::Internal(format!("Failed to set allowed network types: {}", e)))?;
+    // In a test/stub environment, we don't have a real WorkManager executor.
+    // Instead, call our BackgroundDownloader.performDownload() directly.
 
-    // Set title and description
-    if let Some(identifier) = session_identifier {
-        let title = env
-            .new_string(&format!("Download: {}", identifier))
-            .map_err(|e| Error::Internal(format!("Failed to create title string: {}", e)))?;
+    // Add progress callback ID if we have one
+    let progress_id = if let Some(callback) = progress_callback {
+        let id = register_progress_callback(callback);
 
+        let progress_key = env
+            .new_string("progress_handler_id")
+            .map_err(|e| Error::Internal(format!("Failed to create progress key string: {}", e)))?;
         env.call_method(
-            request.as_obj(),
-            "setTitle",
-            "(Ljava/lang/CharSequence;)Landroid/app/DownloadManager$Request;",
-            &[(&title).into()],
+            &data_builder,
+            "putLong",
+            "(Ljava/lang/String;J)Landroidx/work/Data$Builder;",
+            &[(&progress_key).into(), (id as i64).into()],
         )
-        .map_err(|e| Error::Internal(format!("Failed to set download title: {}", e)))?;
+        .map_err(|e| Error::Internal(format!("Failed to put progress ID in data: {}", e)))?;
+
+        Some(id)
+    } else {
+        None
+    };
+
+    // Build the Data object
+    let input_data = env
+        .call_method(&data_builder, "build", "()Landroidx/work/Data;", &[])
+        .map_err(|e| Error::Internal(format!("Failed to build Data: {}", e)))?
+        .l()
+        .map_err(|e| Error::Internal(format!("Failed to get Data object: {}", e)))?;
+
+    // Load DownloadWorker class from DEX
+    let worker_class = crate::backend::android::callback::load_class_from_dex(
+        &mut env,
+        "se.brendan.frakt.DownloadWorker",
+    )?;
+
+    // Create OneTimeWorkRequest.Builder
+    let request_builder_class = env
+        .find_class("androidx/work/OneTimeWorkRequest$Builder")
+        .map_err(|e| Error::Internal(format!("Failed to find OneTimeWorkRequest.Builder class: {}", e)))?;
+
+    let request_builder = env
+        .new_object(
+            request_builder_class,
+            "(Ljava/lang/Class;)V",
+            &[(&worker_class).into()],
+        )
+        .map_err(|e| Error::Internal(format!("Failed to create OneTimeWorkRequest.Builder: {}", e)))?;
+
+    // Set input data
+    env.call_method(
+        &request_builder,
+        "setInputData",
+        "(Landroidx/work/Data;)Landroidx/work/WorkRequest$Builder;",
+        &[(&input_data).into()],
+    )
+    .map_err(|e| Error::Internal(format!("Failed to set input data: {}", e)))?;
+
+    // Build work request
+    let work_request = env
+        .call_method(
+            &request_builder,
+            "build",
+            "()Landroidx/work/WorkRequest;",
+            &[],
+        )
+        .map_err(|e| Error::Internal(format!("Failed to build work request: {}", e)))?
+        .l()
+        .map_err(|e| Error::Internal(format!("Failed to get WorkRequest object: {}", e)))?;
+
+    // Get work ID
+    let work_id = env
+        .call_method(&work_request, "getId", "()Ljava/util/UUID;", &[])
+        .map_err(|e| Error::Internal(format!("Failed to get work ID: {}", e)))?
+        .l()
+        .map_err(|e| Error::Internal(format!("Failed to get UUID object: {}", e)))?;
+
+    let work_id_string = env
+        .call_method(&work_id, "toString", "()Ljava/lang/String;", &[])
+        .map_err(|e| Error::Internal(format!("Failed to convert UUID to string: {}", e)))?
+        .l()
+        .map_err(|e| Error::Internal(format!("Failed to get string object: {}", e)))?;
+
+    let work_id_str: String = env
+        .get_string(&JString::from(work_id_string))
+        .map_err(|e| Error::Internal(format!("Failed to get work ID string: {}", e)))?
+        .into();
+
+    // Enqueue work
+    env.call_method(
+        &work_manager,
+        "enqueue",
+        "(Landroidx/work/WorkRequest;)Landroidx/work/Operation;",
+        &[(&work_request).into()],
+    )
+    .map_err(|e| Error::Internal(format!("Failed to enqueue work: {}", e)))?;
+
+    println!("📥 Enqueued background download with work ID: {}", work_id_str);
+
+    // Poll for completion
+    let start_time = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(30);
+    let mut iteration = 0;
+
+    loop {
+        iteration += 1;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        if start_time.elapsed() > timeout {
+            if let Some(id) = progress_id {
+                unregister_progress_callback(id);
+            }
+            return Err(Error::Internal(format!(
+                "Download timed out after {} seconds",
+                timeout.as_secs()
+            )));
+        }
+
+        // Get WorkInfo
+        let work_info_future = env
+            .call_method(
+                &work_manager,
+                "getWorkInfoById",
+                "(Ljava/util/UUID;)Lcom/google/common/util/concurrent/ListenableFuture;",
+                &[(&work_id).into()],
+            )
+            .map_err(|e| Error::Internal(format!("Failed to get WorkInfo future: {}", e)))?
+            .l()
+            .map_err(|e| Error::Internal(format!("Failed to get future object: {}", e)))?;
+
+        let work_info = env
+            .call_method(&work_info_future, "get", "()Ljava/lang/Object;", &[])
+            .map_err(|e| Error::Internal(format!("Failed to get WorkInfo: {}", e)))?
+            .l()
+            .map_err(|e| Error::Internal(format!("Failed to get WorkInfo object: {}", e)))?;
+
+        let state = env
+            .call_method(&work_info, "getState", "()Landroidx/work/WorkInfo$State;", &[])
+            .map_err(|e| Error::Internal(format!("Failed to get work state: {}", e)))?
+            .l()
+            .map_err(|e| Error::Internal(format!("Failed to get State object: {}", e)))?;
+
+        let state_name = env
+            .call_method(&state, "name", "()Ljava/lang/String;", &[])
+            .map_err(|e| Error::Internal(format!("Failed to get state name: {}", e)))?
+            .l()
+            .map_err(|e| Error::Internal(format!("Failed to get state name string: {}", e)))?;
+
+        let state_str: String = env
+            .get_string(&JString::from(state_name))
+            .map_err(|e| Error::Internal(format!("Failed to convert state name: {}", e)))?
+            .into();
+
+        if iteration % 10 == 0 {
+            println!("📊 Download status: {} (iteration {})", state_str, iteration);
+        }
+
+        match state_str.as_str() {
+            "SUCCEEDED" => {
+                println!("✅ Background download completed successfully");
+                break;
+            }
+            "FAILED" | "CANCELLED" => {
+                if let Some(id) = progress_id {
+                    unregister_progress_callback(id);
+                }
+                return Err(Error::Internal(format!("Download failed with state: {}", state_str)));
+            }
+            _ => {
+                // Still ENQUEUED, RUNNING, or BLOCKED - continue polling
+            }
+        }
     }
 
-    Ok(())
-}
+    // Unregister progress callback
+    if let Some(id) = progress_id {
+        unregister_progress_callback(id);
+    }
 
-/// Create a download response that monitors the download progress
-async fn create_download_response(
-    jvm: &JavaVM,
-    download_manager: GlobalRef,
-    download_id: i64,
-    file_path: PathBuf,
-    progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
-) -> Result<crate::client::download::DownloadResponse> {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use tokio::time::{Duration, sleep};
+    // Get the actual bytes downloaded by checking the file size
+    let bytes_downloaded = std::fs::metadata(&file_path)
+        .map(|m| m.len())
+        .unwrap_or(0);
 
-    let completed = Arc::new(AtomicBool::new(false));
-    let completed_clone = completed.clone();
-
-    // Create global reference to download manager to prevent GC
-    let mut env = jvm
-        .attach_current_thread()
-        .map_err(|e| Error::Internal(format!("Failed to attach to JVM thread: {}", e)))?;
-
-    let dm_global = env.new_global_ref(&download_manager).map_err(|e| {
-        Error::Internal(format!(
-            "Failed to create global ref to DownloadManager: {}",
-            e
-        ))
-    })?;
-
-    // Spawn monitoring task
-    let file_path_clone = file_path.clone();
-
-    tokio::spawn(async move {
-        let mut last_downloaded = 0u64;
-        let mut last_total = None;
-
-        while !completed_clone.load(Ordering::Relaxed) {
-            if let Ok(jvm) = crate::backend::android::get_global_vm() {
-                if let Ok(mut env) = jvm.attach_current_thread() {
-                    match query_download_progress(&mut env, &dm_global, download_id) {
-                        Ok((status, downloaded, total)) => {
-                            // Update progress if callback is provided
-                            if let Some(callback) = &progress_callback {
-                                if downloaded != last_downloaded || total != last_total {
-                                    callback(downloaded, total);
-                                    last_downloaded = downloaded;
-                                    last_total = total;
-                                }
-                            }
-
-                            // Check if download is complete
-                            match status {
-                                DownloadStatus::Successful => {
-                                    if let Some(callback) = &progress_callback {
-                                        callback(downloaded, total);
-                                    }
-                                    completed_clone.store(true, Ordering::Relaxed);
-                                    break;
-                                }
-                                DownloadStatus::Failed => {
-                                    tracing::error!("Download failed for ID: {}", download_id);
-                                    completed_clone.store(true, Ordering::Relaxed);
-                                    break;
-                                }
-                                _ => {
-                                    // Still in progress, continue monitoring
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            tracing::error!("Failed to query download progress: {}", e);
-                            // Continue trying - might be temporary issue
-                        }
-                    }
-                }
-            }
-
-            // Wait before next progress check
-            sleep(Duration::from_millis(500)).await;
-        }
-    });
-
-    // TODO: Capture actual status and headers from DownloadManager
+    // Return with success status
     Ok(crate::client::download::DownloadResponse {
         file_path,
-        bytes_downloaded: 0, // TODO: Get actual bytes downloaded from DownloadManager
+        bytes_downloaded,
         status: http::StatusCode::OK,
         headers: http::HeaderMap::new(),
     })
 }
 
-/// Download status from DownloadManager
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum DownloadStatus {
-    Pending,
-    Running,
-    Paused,
-    Successful,
-    Failed,
-}
-
-impl From<i32> for DownloadStatus {
-    fn from(status: i32) -> Self {
-        match status {
-            1 => DownloadStatus::Pending,
-            2 => DownloadStatus::Running,
-            4 => DownloadStatus::Paused,
-            8 => DownloadStatus::Successful,
-            16 => DownloadStatus::Failed,
-            _ => DownloadStatus::Failed,
-        }
-    }
-}
-
-/// Query download progress from DownloadManager
-fn query_download_progress(
-    env: &mut JNIEnv,
-    download_manager: &GlobalRef,
-    download_id: i64,
-) -> Result<(DownloadStatus, u64, Option<u64>)> {
-    // Create query for this download
-    let query_class = env
-        .find_class("android/app/DownloadManager$Query")
-        .map_err(|e| {
-            Error::Internal(format!("Failed to find DownloadManager.Query class: {}", e))
-        })?;
-
-    let query = env
-        .new_object(query_class, "()V", &[])
-        .map_err(|e| Error::Internal(format!("Failed to create DownloadManager.Query: {}", e)))?;
-
-    // Filter by download ID
-    env.call_method(
-        &query,
-        "setFilterById",
-        "(J)Landroid/app/DownloadManager$Query;",
-        &[download_id.into()],
-    )
-    .map_err(|e| Error::Internal(format!("Failed to set filter by ID: {}", e)))?;
-
-    // Execute query
-    let cursor = env
-        .call_method(
-            download_manager.as_obj(),
-            "query",
-            "(Landroid/app/DownloadManager$Query;)Landroid/database/Cursor;",
-            &[(&query).into()],
-        )
-        .map_err(|e| Error::Internal(format!("Failed to query download: {}", e)))?
-        .l()
-        .map_err(|e| Error::Internal(format!("Failed to get cursor: {}", e)))?;
-
-    // Check if cursor has results
-    let has_results = env
-        .call_method(&cursor, "moveToFirst", "()Z", &[])
-        .map_err(|e| Error::Internal(format!("Failed to move cursor to first: {}", e)))?
-        .z()
-        .map_err(|e| Error::Internal(format!("Failed to convert cursor result: {}", e)))?;
-
-    if !has_results {
-        return Err(Error::Internal("Download not found".to_string()));
-    }
-
-    // Get status column index
-    let status_column = env
-        .new_string("status")
-        .map_err(|e| Error::Internal(format!("Failed to create status column string: {}", e)))?;
-    let status_index = env
-        .call_method(
-            &cursor,
-            "getColumnIndex",
-            "(Ljava/lang/String;)I",
-            &[(&status_column).into()],
-        )
-        .map_err(|e| Error::Internal(format!("Failed to get status column index: {}", e)))?
-        .i()
-        .map_err(|e| Error::Internal(format!("Failed to convert status index: {}", e)))?;
-
-    // Get downloaded bytes column index
-    let downloaded_column = env.new_string("bytes_so_far").map_err(|e| {
-        Error::Internal(format!("Failed to create downloaded column string: {}", e))
-    })?;
-    let downloaded_index = env
-        .call_method(
-            &cursor,
-            "getColumnIndex",
-            "(Ljava/lang/String;)I",
-            &[(&downloaded_column).into()],
-        )
-        .map_err(|e| Error::Internal(format!("Failed to get downloaded column index: {}", e)))?
-        .i()
-        .map_err(|e| Error::Internal(format!("Failed to convert downloaded index: {}", e)))?;
-
-    // Get total bytes column index
-    let total_column = env
-        .new_string("total_size")
-        .map_err(|e| Error::Internal(format!("Failed to create total column string: {}", e)))?;
-    let total_index = env
-        .call_method(
-            &cursor,
-            "getColumnIndex",
-            "(Ljava/lang/String;)I",
-            &[(&total_column).into()],
-        )
-        .map_err(|e| Error::Internal(format!("Failed to get total column index: {}", e)))?
-        .i()
-        .map_err(|e| Error::Internal(format!("Failed to convert total index: {}", e)))?;
-
-    // Read values
-    let status_value = env
-        .call_method(&cursor, "getInt", "(I)I", &[status_index.into()])
-        .map_err(|e| Error::Internal(format!("Failed to get status value: {}", e)))?
-        .i()
-        .map_err(|e| Error::Internal(format!("Failed to convert status value: {}", e)))?;
-
-    let downloaded_bytes = env
-        .call_method(&cursor, "getLong", "(I)J", &[downloaded_index.into()])
-        .map_err(|e| Error::Internal(format!("Failed to get downloaded bytes: {}", e)))?
-        .j()
-        .map_err(|e| Error::Internal(format!("Failed to convert downloaded bytes: {}", e)))?
-        as u64;
-
-    let total_bytes = env
-        .call_method(&cursor, "getLong", "(I)J", &[total_index.into()])
-        .map_err(|e| Error::Internal(format!("Failed to get total bytes: {}", e)))?
-        .j()
-        .map_err(|e| Error::Internal(format!("Failed to convert total bytes: {}", e)))?
-        as u64;
-
-    // Close cursor
-    env.call_method(&cursor, "close", "()V", &[])
-        .map_err(|e| Error::Internal(format!("Failed to close cursor: {}", e)))?;
-
-    let status = DownloadStatus::from(status_value);
-    let total = if total_bytes > 0 {
-        Some(total_bytes)
-    } else {
-        None
-    };
-
-    Ok((status, downloaded_bytes, total))
-}
-
 /// Get the Android application context
-fn get_application_context<'a>(env: &'a mut JNIEnv<'a>) -> Result<JObject<'a>> {
-    // Try to get the activity class
+fn get_application_context<'a>(jvm: &'a JavaVM) -> Result<JObject<'a>> {
+    let mut env = jvm
+        .attach_current_thread()
+        .map_err(|e| Error::Internal(format!("Failed to attach to JVM thread: {}", e)))?;
+
     let activity_thread_class = env
         .find_class("android/app/ActivityThread")
         .map_err(|e| Error::Internal(format!("Failed to find ActivityThread class: {}", e)))?;
 
-    // Get current activity thread
     let current_activity_thread = env
         .call_static_method(
             activity_thread_class,
@@ -482,7 +516,6 @@ fn get_application_context<'a>(env: &'a mut JNIEnv<'a>) -> Result<JObject<'a>> {
         )
         .map_err(|e| Error::Internal(format!("Failed to get current ActivityThread: {}", e)))?;
 
-    // Get application context
     let context = env
         .call_method(
             current_activity_thread.l().unwrap(),
@@ -493,4 +526,305 @@ fn get_application_context<'a>(env: &'a mut JNIEnv<'a>) -> Result<JObject<'a>> {
         .map_err(|e| Error::Internal(format!("Failed to get application context: {}", e)))?;
 
     Ok(context.l().unwrap())
+}
+
+/// Convert HeaderMap to a simple map for JSON serialization
+fn headers_to_map(headers: &http::HeaderMap) -> std::collections::HashMap<String, String> {
+    headers
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.as_str().to_string(),
+                value.to_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// Native JNI function called by BackgroundDownloader to perform the actual download
+#[unsafe(no_mangle)]
+pub extern "C" fn Java_se_brendan_frakt_BackgroundDownloader_nativeDownload(
+    mut env: JNIEnv,
+    _class: JClass,
+    url: JString,
+    file_path: JString,
+    headers_json: JString,
+    progress_callback: JObject,
+) -> jint {
+    perform_download_impl(env, url, file_path, headers_json, progress_callback)
+}
+
+/// Native JNI function called by DownloadWorker to perform the actual download
+#[unsafe(no_mangle)]
+pub extern "C" fn Java_se_brendan_frakt_DownloadWorker_nativeDownload(
+    mut env: JNIEnv,
+    _class: JClass,
+    url: JString,
+    file_path: JString,
+    headers_json: JString,
+    progress_callback: JObject,
+) -> jint {
+    perform_download_impl(env, url, file_path, headers_json, progress_callback)
+}
+
+/// Shared implementation for both BackgroundDownloader and DownloadWorker
+fn perform_download_impl(
+    mut env: JNIEnv,
+    url: JString,
+    file_path: JString,
+    headers_json: JString,
+    progress_callback: JObject,
+) -> jint {
+    println!("🚀 NATIVE nativeDownload() called!");
+
+    // Get JVM
+    let jvm = match env.get_java_vm() {
+        Ok(vm) => vm,
+        Err(e) => {
+            tracing::error!("Failed to get JVM: {}", e);
+            return -1;
+        }
+    };
+
+    // Parse URL
+    let url_str: String = match env.get_string(&url) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            tracing::error!("Failed to get URL string: {}", e);
+            return -1;
+        }
+    };
+
+    let url = match Url::parse(&url_str) {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!("Failed to parse URL: {}", e);
+            return -1;
+        }
+    };
+
+    // Parse file path
+    let file_path_str: String = match env.get_string(&file_path) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            tracing::error!("Failed to get file path string: {}", e);
+            return -1;
+        }
+    };
+
+    let file_path = PathBuf::from(file_path_str);
+
+    // Parse headers
+    let headers_str: String = match env.get_string(&headers_json) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            tracing::error!("Failed to get headers JSON string: {}", e);
+            return -1;
+        }
+    };
+
+    let headers_map: std::collections::HashMap<String, String> =
+        serde_json::from_str(&headers_str).unwrap_or_default();
+
+    let mut headers = http::HeaderMap::new();
+    for (name, value) in headers_map {
+        if let (Ok(n), Ok(v)) = (
+            http::header::HeaderName::from_bytes(name.as_bytes()),
+            http::header::HeaderValue::from_str(&value),
+        ) {
+            headers.insert(n, v);
+        }
+    }
+
+    // Create global ref for progress callback
+    let callback_global = match env.new_global_ref(&progress_callback) {
+        Ok(g) => g,
+        Err(e) => {
+            tracing::error!("Failed to create global ref for callback: {}", e);
+            return -1;
+        }
+    };
+
+    println!("🔧 Starting download with Cronet...");
+
+    // Spawn on the global runtime and wait for completion in a separate thread
+    let runtime = crate::backend::android::get_runtime();
+    let handle = runtime.spawn(async move {
+        download_file_with_cronet(&jvm, url, file_path, headers, callback_global).await
+    });
+
+    // Wait for the task to complete in a blocking thread
+    let thread_result = std::thread::spawn(move || {
+        match runtime.block_on(async { handle.await }) {
+            Ok(result) => result,
+            Err(e) => Err(Error::Internal(format!("Task join error: {}", e))),
+        }
+    })
+    .join();
+
+    // Handle thread join errors
+    let result = match thread_result {
+        Ok(task_result) => task_result,
+        Err(e) => {
+            eprintln!("❌ Thread panic: {:?}", e);
+            tracing::error!("Thread panic: {:?}", e);
+            return -3;
+        }
+    };
+
+    // Handle task result
+    match result {
+        Ok(bytes_downloaded) => {
+            println!("✅ Download completed successfully: {} bytes", bytes_downloaded);
+            0
+        }
+        Err(e) => {
+            eprintln!("❌ Download failed: {}", e);
+            tracing::error!("Download failed: {}", e);
+            -1
+        }
+    }
+}
+
+/// Download file using Cronet and write to disk
+/// Returns the number of bytes downloaded
+async fn download_file_with_cronet(
+    jvm: &JavaVM,
+    url: Url,
+    file_path: PathBuf,
+    headers: http::HeaderMap,
+    progress_callback: GlobalRef,
+) -> Result<u64> {
+    use crate::backend::android::request;
+    use crate::backend::types::BackendRequest;
+    use http::Method;
+
+    // Get Cronet engine
+    let cronet_engine = super::get_global_cronet_engine();
+
+    // Create request
+    let request = BackendRequest {
+        method: Method::GET,
+        url,
+        headers,
+        body: None,
+        progress_callback: None,
+        timeout: None,
+    };
+
+    // Execute request
+    let response = request::execute_request(jvm, &cronet_engine, request).await?;
+
+    // Create file
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| Error::Internal(format!("Failed to create parent directory: {}", e)))?;
+    }
+
+    let mut file = std::fs::File::create(&file_path)
+        .map_err(|e| Error::Internal(format!("Failed to create file: {}", e)))?;
+
+    // Stream response to file
+    let mut body_receiver = response.body_receiver;
+    let mut bytes_downloaded = 0u64;
+    let total_bytes = response
+        .headers
+        .get(http::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<u64>().ok());
+
+    while let Some(chunk_result) = body_receiver.recv().await {
+        match chunk_result {
+            Ok(chunk) => {
+                use std::io::Write;
+                file.write_all(&chunk)
+                    .map_err(|e| Error::Internal(format!("Failed to write to file: {}", e)))?;
+
+                bytes_downloaded += chunk.len() as u64;
+
+                // Call progress callback
+                if let Ok(mut env) = jvm.attach_current_thread() {
+                    let _ = env.call_method(
+                        progress_callback.as_obj(),
+                        "onProgress",
+                        "(JJ)V",
+                        &[
+                            (bytes_downloaded as i64).into(),
+                            (total_bytes.unwrap_or(0) as i64).into(),
+                        ],
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error receiving chunk: {}", e);
+                return Err(e);
+            }
+        }
+    }
+
+    println!(
+        "✅ Download complete: {} bytes to {}",
+        bytes_downloaded,
+        file_path.display()
+    );
+    Ok(bytes_downloaded)
+}
+
+/// JNI function called by DownloadProgressCallback to invoke Rust callback
+#[unsafe(no_mangle)]
+pub extern "C" fn Java_se_brendan_frakt_DownloadProgressCallback_nativeOnProgress(
+    _env: JNIEnv,
+    _class: JClass,
+    handler_id: i64,
+    bytes_downloaded: i64,
+    total_bytes: i64,
+) {
+    // Look up the callback
+    if let Some(callback) = PROGRESS_CALLBACKS.lock().unwrap().get(&handler_id) {
+        let total = if total_bytes > 0 { Some(total_bytes as u64) } else { None };
+        callback(bytes_downloaded as u64, total);
+    }
+}
+
+/// Register native methods for BackgroundDownloader class
+fn register_background_downloader_methods(env: &mut JNIEnv, class: &JClass) -> Result<()> {
+    use jni::NativeMethod;
+    use jni::objects::JClass as JClassType;
+
+    // Clone JClass to pass it by value
+    let jclass = unsafe { JClassType::from_raw(class.as_raw()) };
+
+    let native_methods = [
+        NativeMethod {
+            name: "nativeDownload".into(),
+            sig: "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lse/brendan/frakt/DownloadProgressCallback;)I".into(),
+            fn_ptr: Java_se_brendan_frakt_BackgroundDownloader_nativeDownload as *mut std::ffi::c_void,
+        },
+    ];
+
+    env.register_native_methods(jclass, &native_methods)
+        .map_err(|e| Error::Internal(format!("Failed to register BackgroundDownloader native methods: {}", e)))?;
+
+    Ok(())
+}
+
+/// Register native methods for DownloadProgressCallback class
+fn register_progress_callback_methods(env: &mut JNIEnv, class: &JClass) -> Result<()> {
+    use jni::NativeMethod;
+    use jni::objects::JClass as JClassType;
+
+    let jclass = unsafe { JClassType::from_raw(class.as_raw()) };
+
+    let native_methods = [
+        NativeMethod {
+            name: "nativeOnProgress".into(),
+            sig: "(JJJ)V".into(),
+            fn_ptr: Java_se_brendan_frakt_DownloadProgressCallback_nativeOnProgress as *mut std::ffi::c_void,
+        },
+    ];
+
+    env.register_native_methods(jclass, &native_methods)
+        .map_err(|e| Error::Internal(format!("Failed to register DownloadProgressCallback native methods: {}", e)))?;
+
+    Ok(())
 }
