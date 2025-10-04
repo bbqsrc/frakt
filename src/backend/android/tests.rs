@@ -67,7 +67,9 @@ mod tests {
                 Ok(BackendResponse {
                     status: http::StatusCode::OK,
                     headers: HeaderMap::new(),
+                    url: url.clone(),
                     body_receiver: receiver,
+                    redirect_headers: vec![],
                 })
             }
         }

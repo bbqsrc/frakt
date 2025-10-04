@@ -23,6 +23,9 @@ pub enum CallbackEvent {
         status: StatusCode,
         headers: HeaderMap,
     },
+    Redirect {
+        headers: HeaderMap,
+    },
     ReadCompleted {
         data: Bytes,
     },
@@ -52,6 +55,8 @@ impl CallbackHandler {
 
     /// Handle onResponseStarted callback
     pub fn on_response_started(&mut self, env: &mut JNIEnv, response_info: &JObject) -> Result<()> {
+        println!("📡 onResponseStarted called");
+
         // Extract status code
         let status_code = env
             .call_method(response_info, "getHttpStatusCode", "()I", &[])
@@ -59,14 +64,17 @@ impl CallbackHandler {
             .i()
             .map_err(|e| Error::Internal(format!("Failed to convert status code: {}", e)))?;
 
+        println!("📡 Status code: {}", status_code);
+
         let status = StatusCode::from_u16(status_code as u16)
             .map_err(|e| Error::Internal(format!("Invalid status code {}: {}", status_code, e)))?;
 
-        // Extract headers (simplified for now)
-        let headers = HeaderMap::new();
-        // TODO: Implement proper header extraction from response_info.getAllHeaders()
+        // Extract headers from getAllHeaders()
+        let headers = self.extract_headers(env, response_info)?;
+        println!("📡 Extracted {} headers", headers.len());
 
         if let Some(sender) = &self.response_sender {
+            println!("📡 Sending ResponseStarted event");
             let _ = sender.send(CallbackEvent::ResponseStarted { status, headers });
         }
 
@@ -75,11 +83,18 @@ impl CallbackHandler {
 
     /// Handle onReadCompleted callback
     pub fn on_read_completed(&mut self, env: &mut JNIEnv, byte_buffer: &JObject) -> Result<()> {
+        println!("📡 onReadCompleted called");
+
         // Extract data from ByteBuffer
         let data = self.extract_byte_buffer_data(env, byte_buffer)?;
+        println!("📡 Read {} bytes", data.len());
 
         if let Some(sender) = &self.body_sender {
+            println!("📡 Sending {} bytes to body channel", data.len());
             let _ = sender.send(Ok(data));
+            println!("📡 Sent to body channel");
+        } else {
+            println!("📡 WARNING: body_sender is None, cannot send data!");
         }
 
         Ok(())
@@ -87,6 +102,8 @@ impl CallbackHandler {
 
     /// Handle onSucceeded callback
     pub fn on_succeeded(&mut self) {
+        println!("📡 onSucceeded called");
+
         if let Some(sender) = &self.response_sender {
             let _ = sender.send(CallbackEvent::Succeeded);
         }
@@ -97,24 +114,130 @@ impl CallbackHandler {
 
     /// Handle onFailed callback
     pub fn on_failed(&mut self, error: Error) {
-        if let Some(sender) = &self.response_sender {
-            let _ = sender.send(CallbackEvent::Failed {
-                error: error.clone(),
-            });
-        }
-
-        if let Some(sender) = &self.body_sender {
+        println!("📡 onFailed called: {:?}", error);
+        // Send error to response_sender if it still exists (early failure before response started)
+        // Otherwise send to body_sender (failure during body streaming)
+        // We can only send to one since Error is no longer Clone (due to HttpError containing Response)
+        if let Some(sender) = self.response_sender.take() {
+            let _ = sender.send(CallbackEvent::Failed { error });
+        } else if let Some(sender) = self.body_sender.take() {
             let _ = sender.send(Err(error));
         }
 
-        // Close channels
+        // Close remaining channels
         self.response_sender = None;
         self.body_sender = None;
     }
 
+    /// Extract headers from UrlResponseInfo.getAllHeaders()
+    fn extract_headers(&self, env: &mut JNIEnv, response_info: &JObject) -> Result<HeaderMap> {
+        let mut headers = HeaderMap::new();
+
+        // Call getAllHeaders() which returns Map<String, List<String>>
+        let headers_map = env
+            .call_method(response_info, "getAllHeaders", "()Ljava/util/Map;", &[])
+            .map_err(|e| Error::Internal(format!("Failed to get headers map: {}", e)))?
+            .l()
+            .map_err(|e| Error::Internal(format!("Failed to convert headers map: {}", e)))?;
+
+        // Get entrySet() to iterate over the map
+        let entry_set = env
+            .call_method(&headers_map, "entrySet", "()Ljava/util/Set;", &[])
+            .map_err(|e| Error::Internal(format!("Failed to get entry set: {}", e)))?
+            .l()
+            .map_err(|e| Error::Internal(format!("Failed to convert entry set: {}", e)))?;
+
+        // Get iterator
+        let iterator = env
+            .call_method(&entry_set, "iterator", "()Ljava/util/Iterator;", &[])
+            .map_err(|e| Error::Internal(format!("Failed to get iterator: {}", e)))?
+            .l()
+            .map_err(|e| Error::Internal(format!("Failed to convert iterator: {}", e)))?;
+
+        // Iterate over entries
+        loop {
+            let has_next = env
+                .call_method(&iterator, "hasNext", "()Z", &[])
+                .map_err(|e| Error::Internal(format!("Failed to call hasNext: {}", e)))?
+                .z()
+                .map_err(|e| Error::Internal(format!("Failed to convert hasNext: {}", e)))?;
+
+            if !has_next {
+                break;
+            }
+
+            let entry = env
+                .call_method(&iterator, "next", "()Ljava/lang/Object;", &[])
+                .map_err(|e| Error::Internal(format!("Failed to get next entry: {}", e)))?
+                .l()
+                .map_err(|e| Error::Internal(format!("Failed to convert entry: {}", e)))?;
+
+            // Get key (header name)
+            let key_obj = env
+                .call_method(&entry, "getKey", "()Ljava/lang/Object;", &[])
+                .map_err(|e| Error::Internal(format!("Failed to get key: {}", e)))?
+                .l()
+                .map_err(|e| Error::Internal(format!("Failed to convert key: {}", e)))?;
+
+            let key_jstring = unsafe { jni::objects::JString::from_raw(key_obj.as_raw()) };
+            let key: String = env
+                .get_string(&key_jstring)
+                .map_err(|e| Error::Internal(format!("Failed to get key string: {}", e)))?
+                .into();
+
+            // Get value (List<String>)
+            let value_list = env
+                .call_method(&entry, "getValue", "()Ljava/lang/Object;", &[])
+                .map_err(|e| Error::Internal(format!("Failed to get value: {}", e)))?
+                .l()
+                .map_err(|e| Error::Internal(format!("Failed to convert value: {}", e)))?;
+
+            // Convert List to array to iterate
+            let value_array = env
+                .call_method(&value_list, "toArray", "()[Ljava/lang/Object;", &[])
+                .map_err(|e| Error::Internal(format!("Failed to convert list to array: {}", e)))?
+                .l()
+                .map_err(|e| Error::Internal(format!("Failed to get array: {}", e)))?;
+
+            let value_jarray =
+                unsafe { jni::objects::JObjectArray::from_raw(value_array.as_raw()) };
+            let array_len = env
+                .get_array_length(&value_jarray)
+                .map_err(|e| Error::Internal(format!("Failed to get array length: {}", e)))?;
+
+            // HTTP allows multiple values for the same header
+            for i in 0..array_len {
+                let value_obj = env
+                    .get_object_array_element(&value_jarray, i)
+                    .map_err(|e| Error::Internal(format!("Failed to get array element: {}", e)))?;
+
+                let value_jstring = unsafe { jni::objects::JString::from_raw(value_obj.as_raw()) };
+                let value: String = env
+                    .get_string(&value_jstring)
+                    .map_err(|e| Error::Internal(format!("Failed to get value string: {}", e)))?
+                    .into();
+
+                // Insert into HeaderMap
+                if let Ok(header_name) = http::header::HeaderName::from_bytes(key.as_bytes()) {
+                    if let Ok(header_value) = http::header::HeaderValue::from_str(&value) {
+                        headers.append(header_name, header_value);
+                    }
+                }
+            }
+        }
+
+        Ok(headers)
+    }
+
     /// Extract data from a Java ByteBuffer
     fn extract_byte_buffer_data(&self, env: &mut JNIEnv, byte_buffer: &JObject) -> Result<Bytes> {
-        // Get the position and limit of the ByteBuffer
+        // IMPORTANT: When Cronet writes to the ByteBuffer, it advances the position.
+        // The data is from position 0 to current position.
+        // We need to flip the buffer to prepare it for reading.
+        env.call_method(byte_buffer, "flip", "()Ljava/nio/Buffer;", &[])
+            .map_err(|e| Error::Internal(format!("Failed to flip ByteBuffer: {}", e)))?;
+
+        // Get the position and limit of the ByteBuffer AFTER flipping
         let position = env
             .call_method(byte_buffer, "position", "()I", &[])
             .map_err(|e| Error::Internal(format!("Failed to get ByteBuffer position: {}", e)))?
@@ -152,43 +275,24 @@ impl CallbackHandler {
             .z()
             .map_err(|e| Error::Internal(format!("Failed to convert hasArray result: {}", e)))?;
 
-        let data = if has_array {
-            // Get the backing array
-            let array = env
-                .call_method(byte_buffer, "array", "()[B", &[])
-                .map_err(|e| Error::Internal(format!("Failed to get ByteBuffer array: {}", e)))?
-                .l()
-                .map_err(|e| Error::Internal(format!("Failed to get array object: {}", e)))?;
+        // Use ByteBuffer.get(byte[]) to read data into our array
+        // This handles both direct and array-backed buffers
+        env.call_method(
+            byte_buffer,
+            "get",
+            "([B)Ljava/nio/ByteBuffer;",
+            &[(&byte_array).into()],
+        )
+        .map_err(|e| Error::Internal(format!("Failed to get bytes from ByteBuffer: {}", e)))?;
 
-            let array_offset = env
-                .call_method(byte_buffer, "arrayOffset", "()I", &[])
-                .map_err(|e| Error::Internal(format!("Failed to get array offset: {}", e)))?
-                .i()
-                .map_err(|e| Error::Internal(format!("Failed to convert array offset: {}", e)))?
-                as usize;
+        // Copy data from JNI array into our buffer
+        let mut buffer = vec![0i8; length];
+        env.get_byte_array_region(&byte_array, 0, &mut buffer)
+            .map_err(|e| Error::Internal(format!("Failed to get byte array region: {}", e)))?;
 
-            // Get bytes from the array
-            let start_index = (array_offset + position) as i32;
-            let byte_array = unsafe {
-                jni::objects::JByteArray::from_raw(array.into_raw() as jni::sys::jbyteArray)
-            };
-
-            let mut buffer = vec![0i8; length];
-            env.get_byte_array_region(&byte_array, start_index, &mut buffer)
-                .map_err(|e| Error::Internal(format!("Failed to get byte array region: {}", e)))?;
-
-            buffer.as_ptr() as *const u8
-        } else {
-            // Handle direct ByteBuffer - this is more complex and requires unsafe code
-            return Err(Error::Internal(
-                "Direct ByteBuffers not yet supported".to_string(),
-            ));
-        };
-
-        // Convert to Bytes (this is simplified - in practice you'd need proper memory management)
-        let vec_data = unsafe { std::slice::from_raw_parts(data as *const u8, length).to_vec() };
-
-        Ok(Bytes::from(vec_data))
+        // Convert i8 to u8 and return
+        let u8_vec: Vec<u8> = buffer.iter().map(|&b| b as u8).collect();
+        Ok(Bytes::from(u8_vec))
     }
 }
 
@@ -214,6 +318,13 @@ pub fn register_callback_handler(handler: CallbackHandler) -> jlong {
     id
 }
 
+/// Re-insert a callback handler with the same ID
+pub fn reinsert_callback_handler(id: jlong, handler: CallbackHandler) {
+    if let Ok(mut handlers) = CALLBACK_HANDLERS.lock() {
+        handlers.insert(id, Box::new(handler));
+    }
+}
+
 /// Get a callback handler by ID
 pub fn get_callback_handler(id: jlong) -> Option<Box<CallbackHandler>> {
     if let Ok(mut handlers) = CALLBACK_HANDLERS.lock() {
@@ -231,51 +342,286 @@ pub fn unregister_callback_handler(id: jlong) {
 }
 
 // JNI callback functions that will be called from Java
-// These need to be exported and match the expected signatures
+// These need to be exported and match the expected signatures for se.brendan.frakt.RustUrlRequestCallback
+
+// NetworkException error codes from Android Cronet API
+const ERROR_HOSTNAME_NOT_RESOLVED: i32 = 6;
+const ERROR_INTERNET_DISCONNECTED: i32 = 7;
+const ERROR_NETWORK_CHANGED: i32 = 8;
+const ERROR_TIMED_OUT: i32 = 9;
+const ERROR_CONNECTION_CLOSED: i32 = 10;
+const ERROR_CONNECTION_TIMED_OUT: i32 = 11;
+const ERROR_CONNECTION_REFUSED: i32 = 12;
+const ERROR_CONNECTION_RESET: i32 = 13;
+const ERROR_ADDRESS_UNREACHABLE: i32 = 14;
+const ERROR_QUIC_PROTOCOL_FAILED: i32 = 15;
+const ERROR_OTHER: i32 = 16;
+
+/// Extract error information from CronetException
+fn extract_cronet_error(env: &mut JNIEnv, error: &JObject) -> Error {
+    // Get error message from getMessage()
+    let message = match env.call_method(error, "getMessage", "()Ljava/lang/String;", &[]) {
+        Ok(result) => match result.l() {
+            Ok(jstring) => {
+                let java_str = unsafe { jni::objects::JString::from_raw(jstring.as_raw()) };
+                match env.get_string(&java_str) {
+                    Ok(s) => s.into(),
+                    Err(_) => "Unknown error".to_string(),
+                }
+            }
+            Err(_) => "Unknown error".to_string(),
+        },
+        Err(_) => "Unknown error".to_string(),
+    };
+
+    // Check if it's a NetworkException to get error code
+    let network_exception_class = match env.find_class("org/chromium/net/NetworkException") {
+        Ok(cls) => cls,
+        Err(e) => {
+            tracing::warn!("Failed to find NetworkException class: {}", e);
+            return Error::Network { code: -1, message };
+        }
+    };
+
+    let is_network_exception = match env.is_instance_of(error, &network_exception_class) {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::warn!("Failed to check instance type: {}", e);
+            return Error::Network { code: -1, message };
+        }
+    };
+
+    if !is_network_exception {
+        // Generic CronetException, not a NetworkException
+        return Error::Network { code: -1, message };
+    }
+
+    // Get error code from NetworkException.getErrorCode()
+    let error_code = match env.call_method(error, "getErrorCode", "()I", &[]) {
+        Ok(result) => match result.i() {
+            Ok(code) => code,
+            Err(e) => {
+                tracing::warn!("Failed to convert error code: {}", e);
+                -1
+            }
+        },
+        Err(e) => {
+            tracing::warn!("Failed to get error code: {}", e);
+            -1
+        }
+    };
+
+    tracing::error!("Cronet error code {}: {}", error_code, message);
+
+    // Map error codes to appropriate Error variants
+    match error_code {
+        ERROR_CONNECTION_TIMED_OUT | ERROR_TIMED_OUT => Error::Timeout,
+        ERROR_HOSTNAME_NOT_RESOLVED => Error::Network {
+            code: error_code as i64,
+            message: format!("Hostname not resolved: {}", message),
+        },
+        ERROR_INTERNET_DISCONNECTED => Error::Network {
+            code: error_code as i64,
+            message: format!("No internet connection: {}", message),
+        },
+        ERROR_CONNECTION_REFUSED => Error::Network {
+            code: error_code as i64,
+            message: format!("Connection refused: {}", message),
+        },
+        ERROR_CONNECTION_RESET => Error::Network {
+            code: error_code as i64,
+            message: format!("Connection reset: {}", message),
+        },
+        ERROR_ADDRESS_UNREACHABLE => Error::Network {
+            code: error_code as i64,
+            message: format!("Address unreachable: {}", message),
+        },
+        _ => Error::Network {
+            code: error_code as i64,
+            message,
+        },
+    }
+}
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_org_chromium_net_UrlRequest_00024Callback_onResponseStarted(
+pub extern "C" fn Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnRedirectReceived(
     mut env: JNIEnv,
-    _class: JClass,
-    handler_id: jlong,
-    _request: JObject,
+    this: JObject,
+    request: JObject,
+    response_info: JObject,
+    new_location: JObject,
+) {
+    println!("🔵 JNI nativeOnRedirectReceived called");
+
+    // Get the redirect URL for logging
+    let url_jstring = unsafe { jni::objects::JString::from_raw(new_location.as_raw()) };
+    if let Ok(url) = env.get_string(&url_jstring) {
+        println!("🔄 Following redirect to: {}", url.to_string_lossy());
+    }
+
+    // Get handler ID and send redirect headers (for cookie processing)
+    if let Ok(handler_id_long) = env.get_field(&this, "handlerId", "J") {
+        if let Ok(handler_id) = handler_id_long.j() {
+            if let Some(mut handler) = get_callback_handler(handler_id) {
+                // Extract headers from redirect response (which may contain Set-Cookie)
+                if let Ok(headers) = handler.extract_headers(&mut env, &response_info) {
+                    println!(
+                        "🔄 Extracted {} headers from redirect response",
+                        headers.len()
+                    );
+                    // Send redirect headers so cookies can be processed
+                    if let Some(ref sender) = handler.response_sender {
+                        let _ = sender.send(CallbackEvent::Redirect { headers });
+                    }
+                }
+                // Put handler back
+                reinsert_callback_handler(handler_id, *handler);
+            }
+        }
+    }
+
+    // Auto-follow redirects by calling request.followRedirect()
+    if let Err(e) = env.call_method(&request, "followRedirect", "()V", &[]) {
+        println!("❌ Failed to follow redirect: {}", e);
+        tracing::error!("Failed to follow redirect: {}", e);
+    } else {
+        println!("✅ Redirect followed successfully");
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnResponseStarted(
+    mut env: JNIEnv,
+    this: JObject,
+    request: JObject,
     response_info: JObject,
 ) {
+    println!("🔵 JNI nativeOnResponseStarted called");
+
+    let handler_id = match env.call_method(&this, "getHandlerId", "()J", &[]) {
+        Ok(result) => match result.j() {
+            Ok(id) => id,
+            Err(e) => {
+                println!("❌ Failed to convert handler ID: {}", e);
+                tracing::error!("Failed to convert handler ID: {}", e);
+                return;
+            }
+        },
+        Err(e) => {
+            tracing::error!("Failed to get handler ID: {}", e);
+            return;
+        }
+    };
+
     if let Some(mut handler) = get_callback_handler(handler_id) {
         if let Err(e) = handler.on_response_started(&mut env, &response_info) {
             tracing::error!("Error in onResponseStarted: {}", e);
         }
-        // Re-register the handler
-        register_callback_handler(*handler);
+        // Re-insert the handler with the same ID
+        reinsert_callback_handler(handler_id, *handler);
+    }
+
+    // Allocate ByteBuffer and start reading (32KB buffer)
+    let byte_buffer = match env.call_static_method(
+        "java/nio/ByteBuffer",
+        "allocateDirect",
+        "(I)Ljava/nio/ByteBuffer;",
+        &[32768i32.into()],
+    ) {
+        Ok(result) => match result.l() {
+            Ok(buf) => buf,
+            Err(e) => {
+                tracing::error!("Failed to convert ByteBuffer: {}", e);
+                return;
+            }
+        },
+        Err(e) => {
+            tracing::error!("Failed to allocate ByteBuffer: {}", e);
+            return;
+        }
+    };
+
+    if let Err(e) = env.call_method(
+        &request,
+        "read",
+        "(Ljava/nio/ByteBuffer;)V",
+        &[(&byte_buffer).into()],
+    ) {
+        tracing::error!("Failed to start reading response: {}", e);
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_org_chromium_net_UrlRequest_00024Callback_onReadCompleted(
+pub extern "C" fn Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnReadCompleted(
     mut env: JNIEnv,
-    _class: JClass,
-    handler_id: jlong,
-    _request: JObject,
+    this: JObject,
+    request: JObject,
     _response_info: JObject,
     byte_buffer: JObject,
 ) {
+    println!("🔵 JNI nativeOnReadCompleted called");
+
+    let handler_id = match env.call_method(&this, "getHandlerId", "()J", &[]) {
+        Ok(result) => match result.j() {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("Failed to convert handler ID: {}", e);
+                return;
+            }
+        },
+        Err(e) => {
+            tracing::error!("Failed to get handler ID: {}", e);
+            return;
+        }
+    };
+
     if let Some(mut handler) = get_callback_handler(handler_id) {
         if let Err(e) = handler.on_read_completed(&mut env, &byte_buffer) {
             tracing::error!("Error in onReadCompleted: {}", e);
         }
-        // Re-register the handler
-        register_callback_handler(*handler);
+        // Re-insert the handler with the same ID
+        reinsert_callback_handler(handler_id, *handler);
+    }
+
+    // Continue reading - clear buffer and read again
+    if let Err(e) = env.call_method(&byte_buffer, "clear", "()Ljava/nio/Buffer;", &[]) {
+        tracing::error!("Failed to clear ByteBuffer: {}", e);
+        return;
+    }
+
+    if let Err(e) = env.call_method(
+        &request,
+        "read",
+        "(Ljava/nio/ByteBuffer;)V",
+        &[(&byte_buffer).into()],
+    ) {
+        tracing::error!("Failed to continue reading response: {}", e);
     }
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_org_chromium_net_UrlRequest_00024Callback_onSucceeded(
-    _env: JNIEnv,
-    _class: JClass,
-    handler_id: jlong,
+pub extern "C" fn Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnSucceeded(
+    mut env: JNIEnv,
+    this: JObject,
     _request: JObject,
     _response_info: JObject,
 ) {
+    println!("🔵 JNI nativeOnSucceeded called");
+
+    let handler_id = match env.call_method(&this, "getHandlerId", "()J", &[]) {
+        Ok(result) => match result.j() {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("Failed to convert handler ID: {}", e);
+                return;
+            }
+        },
+        Err(e) => {
+            tracing::error!("Failed to get handler ID: {}", e);
+            return;
+        }
+    };
+
     if let Some(mut handler) = get_callback_handler(handler_id) {
         handler.on_succeeded();
     }
@@ -283,21 +629,35 @@ pub extern "system" fn Java_org_chromium_net_UrlRequest_00024Callback_onSucceede
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_org_chromium_net_UrlRequest_00024Callback_onFailed(
-    _env: JNIEnv,
-    _class: JClass,
-    handler_id: jlong,
+pub extern "C" fn Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnFailed(
+    mut env: JNIEnv,
+    this: JObject,
     _request: JObject,
     _response_info: JObject,
-    _error: JObject,
+    error: JObject,
 ) {
-    let error_msg = "Request failed".to_string(); // TODO: Extract actual error from CronetException
-    let rust_error = Error::Internal(error_msg);
+    println!("🔵 JNI nativeOnFailed called");
+
+    let handler_id = match env.call_method(&this, "getHandlerId", "()J", &[]) {
+        Ok(result) => match result.j() {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("Failed to convert handler ID: {}", e);
+                return;
+            }
+        },
+        Err(e) => {
+            tracing::error!("Failed to get handler ID: {}", e);
+            return;
+        }
+    };
+
+    // Extract error details from CronetException
+    let rust_error = extract_cronet_error(&mut env, &error);
 
     if let Some(mut handler) = get_callback_handler(handler_id) {
         handler.on_failed(rust_error);
     }
-    // Handler is already removed by get_callback_handler
 }
 
 // RustUrlRequestCallback Java class loading
@@ -383,6 +743,9 @@ fn ensure_callback_class_loaded(env: &mut JNIEnv) -> Result<()> {
         .l()
         .map_err(|e| Error::Internal(format!("Failed to convert loaded class: {}", e)))?;
 
+    // Register native methods manually since InMemoryDexClassLoader doesn't support automatic JNI resolution
+    register_native_methods(env, &loaded_class)?;
+
     // Store the class as a global reference
     let class_ref = env
         .new_global_ref(&loaded_class)
@@ -390,6 +753,48 @@ fn ensure_callback_class_loaded(env: &mut JNIEnv) -> Result<()> {
 
     // Store in OnceCell (ignore if another thread already stored it)
     let _ = CALLBACK_CLASS.set(class_ref);
+
+    Ok(())
+}
+
+/// Register native methods with the RustUrlRequestCallback class
+fn register_native_methods(env: &mut JNIEnv, class: &JObject) -> Result<()> {
+    use jni::NativeMethod;
+    use jni::objects::JClass;
+
+    // Convert JObject to JClass without moving
+    let jclass = unsafe { JClass::from_raw(class.as_raw()) };
+
+    let native_methods = [
+        NativeMethod {
+            name: "nativeOnRedirectReceived".into(),
+            sig: "(Lorg/chromium/net/UrlRequest;Lorg/chromium/net/UrlResponseInfo;Ljava/lang/String;)V".into(),
+            fn_ptr: Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnRedirectReceived as *mut std::ffi::c_void,
+        },
+        NativeMethod {
+            name: "nativeOnResponseStarted".into(),
+            sig: "(Lorg/chromium/net/UrlRequest;Lorg/chromium/net/UrlResponseInfo;)V".into(),
+            fn_ptr: Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnResponseStarted as *mut std::ffi::c_void,
+        },
+        NativeMethod {
+            name: "nativeOnReadCompleted".into(),
+            sig: "(Lorg/chromium/net/UrlRequest;Lorg/chromium/net/UrlResponseInfo;Ljava/nio/ByteBuffer;)V".into(),
+            fn_ptr: Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnReadCompleted as *mut std::ffi::c_void,
+        },
+        NativeMethod {
+            name: "nativeOnSucceeded".into(),
+            sig: "(Lorg/chromium/net/UrlRequest;Lorg/chromium/net/UrlResponseInfo;)V".into(),
+            fn_ptr: Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnSucceeded as *mut std::ffi::c_void,
+        },
+        NativeMethod {
+            name: "nativeOnFailed".into(),
+            sig: "(Lorg/chromium/net/UrlRequest;Lorg/chromium/net/UrlResponseInfo;Lorg/chromium/net/CronetException;)V".into(),
+            fn_ptr: Java_se_brendan_frakt_RustUrlRequestCallback_nativeOnFailed as *mut std::ffi::c_void,
+        },
+    ];
+
+    env.register_native_methods(jclass, &native_methods)
+        .map_err(|e| Error::Internal(format!("Failed to register native methods: {}", e)))?;
 
     Ok(())
 }
@@ -413,127 +818,4 @@ pub fn create_callback_instance(env: &mut JNIEnv, handler_id: jlong) -> Result<G
 
     env.new_global_ref(&callback_object)
         .map_err(|e| Error::Internal(format!("Failed to create global ref for callback: {}", e)))
-}
-
-// JNI callback functions called by RustUrlRequestCallback native methods
-
-#[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_se_brendan_frakt_RustUrlRequestCallback_onRedirectReceived(
-    mut env: JNIEnv,
-    this: JObject,
-    _request: JObject,
-    _info: JObject,
-    _new_location: JObject,
-) {
-    // Get handler_id from the callback object
-    let handler_id = match env.call_method(&this, "getHandlerId", "()J", &[]) {
-        Ok(val) => match val.j() {
-            Ok(id) => id,
-            Err(_) => return,
-        },
-        Err(_) => return,
-    };
-
-    // For now, automatically follow redirects
-    // TODO: Implement proper redirect handling
-    tracing::debug!("onRedirectReceived for handler {}", handler_id);
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_se_brendan_frakt_RustUrlRequestCallback_onResponseStarted(
-    mut env: JNIEnv,
-    this: JObject,
-    _request: JObject,
-    response_info: JObject,
-) {
-    // Get handler_id from the callback object
-    let handler_id = match env.call_method(&this, "getHandlerId", "()J", &[]) {
-        Ok(val) => match val.j() {
-            Ok(id) => id,
-            Err(_) => return,
-        },
-        Err(_) => return,
-    };
-
-    if let Some(mut handler) = get_callback_handler(handler_id) {
-        if let Err(e) = handler.on_response_started(&mut env, &response_info) {
-            tracing::error!("Error in onResponseStarted: {}", e);
-        }
-        // Re-register the handler
-        register_callback_handler(*handler);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_se_brendan_frakt_RustUrlRequestCallback_onReadCompleted(
-    mut env: JNIEnv,
-    this: JObject,
-    _request: JObject,
-    _response_info: JObject,
-    byte_buffer: JObject,
-) {
-    // Get handler_id from the callback object
-    let handler_id = match env.call_method(&this, "getHandlerId", "()J", &[]) {
-        Ok(val) => match val.j() {
-            Ok(id) => id,
-            Err(_) => return,
-        },
-        Err(_) => return,
-    };
-
-    if let Some(mut handler) = get_callback_handler(handler_id) {
-        if let Err(e) = handler.on_read_completed(&mut env, &byte_buffer) {
-            tracing::error!("Error in onReadCompleted: {}", e);
-        }
-        // Re-register the handler
-        register_callback_handler(*handler);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_se_brendan_frakt_RustUrlRequestCallback_onSucceeded(
-    mut env: JNIEnv,
-    this: JObject,
-    _request: JObject,
-    _response_info: JObject,
-) {
-    // Get handler_id from the callback object
-    let handler_id = match env.call_method(&this, "getHandlerId", "()J", &[]) {
-        Ok(val) => match val.j() {
-            Ok(id) => id,
-            Err(_) => return,
-        },
-        Err(_) => return,
-    };
-
-    if let Some(mut handler) = get_callback_handler(handler_id) {
-        handler.on_succeeded();
-    }
-    // Handler is already removed by get_callback_handler
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "system" fn Java_se_brendan_frakt_RustUrlRequestCallback_onFailed(
-    mut env: JNIEnv,
-    this: JObject,
-    _request: JObject,
-    _response_info: JObject,
-    _error: JObject,
-) {
-    // Get handler_id from the callback object
-    let handler_id = match env.call_method(&this, "getHandlerId", "()J", &[]) {
-        Ok(val) => match val.j() {
-            Ok(id) => id,
-            Err(_) => return,
-        },
-        Err(_) => return,
-    };
-
-    let error_msg = "Request failed".to_string(); // TODO: Extract actual error from CronetException
-    let rust_error = Error::Internal(error_msg);
-
-    if let Some(mut handler) = get_callback_handler(handler_id) {
-        handler.on_failed(rust_error);
-    }
-    // Handler is already removed by get_callback_handler
 }

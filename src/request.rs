@@ -28,12 +28,13 @@ impl Request {
             headers: self.headers,
             body: self.body,
             progress_callback: self.progress_callback,
+            timeout: None, // Timeout is applied from backend config
         };
 
         let backend_response = self.backend.execute(backend_request).await?;
         let response = crate::Response::from_backend(backend_response);
 
-        // Check for HTTP error status if enabled
+        // Check for HTTP error status if enabled (default is true)
         if error_for_status && response.status().as_u16() >= 400 {
             return Err(crate::Error::HttpError(response));
         }

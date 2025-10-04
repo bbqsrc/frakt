@@ -22,8 +22,27 @@ fn backend() -> BackendType {
     }
 }
 
+fn temp_dir() -> tempfile::TempDir {
+    if cfg!(target_os = "android") {
+        tempfile::tempdir_in("/data/data/com.vampire.host/cache").unwrap()
+    } else {
+        tempfile::tempdir().unwrap()
+    }
+}
+
 #[cfg(target_os = "android")]
 fn backend() -> BackendType {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+
+    // Initialize NetLog once for debugging
+    INIT.call_once(|| {
+        if let Ok(path) = frakt::backend::android::start_netlog() {
+            println!("📊 NetLog enabled: {}", path);
+            println!("📊 Retrieve with: adb pull {}", path);
+        }
+    });
+
     BackendType::Android
 }
 
@@ -34,16 +53,35 @@ async fn test_basic_get_request() -> Result<()> {
         .user_agent("frakt-integration-test/1.0")
         .build()?;
 
-    let response = client.get("https://httpbin.org/get")?.send().await?;
+    println!("Sending GET request to https://httpbin.org/get");
 
+    let response = client.get("https://httpbin.org/get")?.send().await?;
+    println!("Received response with status: {}", response.status());
+    println!("Response headers: {:#?}", response.headers());
+    println!("{:?}", response);
     assert_eq!(response.status(), 200);
 
+    println!("Before response text");
     let text = response.text().await?;
-    println!("Response text: {}", text);
+
     assert!(text.contains("httpbin.org"));
+
+    // Stop NetLog to finalize the file
+    #[cfg(target_os = "android")]
+    {
+        let _ = frakt::backend::android::stop_netlog();
+    }
 
     Ok(())
 }
+
+// #[vampire::test]
+// fn dns_test() -> Result<()> {
+//     let _ = frakt::backend::android::list_permissions()?;
+//     let ip = frakt::backend::android::test_dns("httpbin.org")?;
+//     println!("✅ DNS resolved httpbin.org to: {}", ip);
+//     Ok(())
+// }
 
 #[vampire::test]
 async fn test_post_with_json() -> Result<()> {
@@ -73,8 +111,6 @@ async fn test_post_with_json() -> Result<()> {
 
     // Verify it was sent as POST
     assert!(text.contains("\"url\": \"https://httpbin.org/post\""));
-
-    panic!("NO");
 
     Ok(())
 }
@@ -189,15 +225,18 @@ async fn test_download_file() -> Result<()> {
         .user_agent("frakt-integration-test/1.0")
         .build()?;
 
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = temp_dir();
+    let temp_dir = temp_dir.path();
     let file_path = temp_dir.join("test_download.txt");
 
     // Clean up any existing file
     let _ = std::fs::remove_file(&file_path);
 
     let _response = client
-        .download("https://httpbin.org/base64/SHR0cCBkb3dubG9hZCB0ZXN0")?
-        .to_file(&file_path)
+        .download(
+            "https://httpbin.org/base64/SHR0cCBkb3dubG9hZCB0ZXN0",
+            &file_path,
+        )?
         .send()
         .await?;
 
@@ -253,7 +292,11 @@ async fn test_error_status_codes() -> Result<()> {
         .user_agent("frakt-integration-test/1.0")
         .build()?;
 
-    let response = client.get("https://httpbin.org/status/404")?.send().await?;
+    let response = client
+        .get("https://httpbin.org/status/404")?
+        .allow_error_status()
+        .send()
+        .await?;
 
     assert_eq!(response.status(), 404);
 
@@ -456,10 +499,7 @@ async fn test_connection_failures() -> Result<()> {
         .build()?;
 
     // Test connection to non-existent host (this should still work as it's a valid URL)
-    let result = client
-        .get("http://this-domain-does-not-exist-12345.com")?
-        .send()
-        .await;
+    let result = client.get("http://frakt.user.town")?.send().await;
     assert!(result.is_err());
 
     // Test connection to invalid port
@@ -557,7 +597,8 @@ async fn test_download_with_progress() -> Result<()> {
         .user_agent("frakt-integration-test/1.0")
         .build()?;
 
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = temp_dir();
+    let temp_dir = temp_dir.path();
     let file_path = temp_dir.join("test_progress_download.txt");
 
     // Clean up any existing file
@@ -568,8 +609,7 @@ async fn test_download_with_progress() -> Result<()> {
     let progress_calls_clone = progress_calls.clone();
 
     let _response = client
-        .download("https://httpbin.org/base64/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IGZvciB0aGUgZG93bmxvYWQgcHJvZ3Jlc3MgY2FsbGJhY2suIFdlIG5lZWQgYSBiaXQgbW9yZSB0ZXh0IHRvIG1ha2UgaXQgaW50ZXJlc3RpbmcgYW5kIHRyaWdnZXIgbXVsdGlwbGUgcHJvZ3Jlc3MgdXBkYXRlcy4=")?
-        .to_file(&file_path)
+        .download("https://httpbin.org/base64/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IGZvciB0aGUgZG93bmxvYWQgcHJvZ3Jlc3MgY2FsbGJhY2suIFdlIG5lZWQgYSBiaXQgbW9yZSB0ZXh0IHRvIG1ha2UgaXQgaW50ZXJlc3RpbmcgYW5kIHRyaWdnZXIgbXVsdGlwbGUgcHJvZ3Jlc3MgdXBkYXRlcy4=", &file_path)?
         .progress(move |bytes_downloaded, total_bytes| {
             let mut calls = progress_calls_clone.lock().unwrap();
             calls.push((bytes_downloaded, total_bytes));
@@ -673,5 +713,247 @@ async fn test_form_urlencoded_upload() -> Result<()> {
 
     // Verify form data was sent correctly
     assert!(form.get("username").and_then(|x| x.as_str()) == Some("john_doe"));
+    Ok(())
+}
+
+// // Cleanup function to stop NetLog - call this manually when done testing
+// #[cfg(target_os = "android")]
+// #[allow(dead_code)]
+// fn stop_test_netlog() {
+//     if let Err(e) = frakt::backend::android::stop_netlog() {
+//         eprintln!("Failed to stop NetLog: {}", e);
+//     }
+// }
+
+#[vampire::test]
+async fn test_background_download_basic() -> Result<()> {
+    let client = Client::builder()
+        .backend(backend())
+        .user_agent("frakt-integration-test/1.0")
+        .build()?;
+
+    let temp_dir = temp_dir();
+    let temp_dir = temp_dir.path();
+    let file_path = temp_dir.join("test_background_download.txt");
+
+    // Clean up any existing file
+    let _ = std::fs::remove_file(&file_path);
+
+    println!("Starting background download test...");
+
+    let response = client
+        .download_background(
+            "https://httpbin.org/base64/QmFja2dyb3VuZCBkb3dubG9hZCB0ZXN0",
+            &file_path,
+        )
+        .session_identifier("test-background-download")
+        .send()
+        .await?;
+
+    println!("Background download response: {:?}", response.file_path);
+
+    // Verify the file was downloaded
+    assert!(file_path.exists(), "Downloaded file should exist");
+
+    let content = std::fs::read_to_string(&file_path)?;
+    assert!(
+        content.contains("Background download test"),
+        "File content should match"
+    );
+
+    // Verify response metadata
+    assert_eq!(response.file_path, file_path);
+    assert!(
+        response.bytes_downloaded > 0,
+        "Should have downloaded some bytes"
+    );
+    assert_eq!(response.status, 200);
+
+    // Clean up
+    let _ = std::fs::remove_file(&file_path);
+
+    Ok(())
+}
+
+#[vampire::test]
+async fn test_background_download_with_progress() -> Result<()> {
+    let client = Client::builder()
+        .backend(backend())
+        .user_agent("frakt-integration-test/1.0")
+        .build()?;
+
+    let temp_dir = temp_dir();
+    let temp_dir = temp_dir.path();
+    let file_path = temp_dir.join("test_background_download_progress.bin");
+
+    // Clean up any existing file
+    let _ = std::fs::remove_file(&file_path);
+
+    use std::sync::{Arc, Mutex};
+    let progress_called = Arc::new(Mutex::new(false));
+    let progress_called_clone = progress_called.clone();
+
+    println!("Starting background download with progress...");
+
+    let response = client
+        .download_background("https://httpbin.org/bytes/10240", &file_path)
+        .session_identifier("test-background-download-progress")
+        .progress(move |downloaded, total| {
+            *progress_called_clone.lock().unwrap() = true;
+            println!("Progress: {} / {:?} bytes", downloaded, total);
+        })
+        .send()
+        .await?;
+
+    // Verify the file was downloaded
+    assert!(file_path.exists(), "Downloaded file should exist");
+    assert_eq!(
+        response.bytes_downloaded, 10240,
+        "Should download exactly 10240 bytes"
+    );
+
+    // Progress callback should have been called
+    assert!(
+        *progress_called.lock().unwrap(),
+        "Progress callback should be called"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_file(&file_path);
+
+    Ok(())
+}
+
+#[vampire::test]
+async fn test_background_download_with_auth() -> Result<()> {
+    let client = Client::builder()
+        .backend(backend())
+        .user_agent("frakt-integration-test/1.0")
+        .build()?;
+
+    let temp_dir = temp_dir();
+    let temp_dir = temp_dir.path();
+    let file_path = temp_dir.join("test_background_download_auth.json");
+
+    // Clean up any existing file
+    let _ = std::fs::remove_file(&file_path);
+
+    println!("Starting background download with authentication...");
+
+    let response = client
+        .download_background(
+            "https://httpbin.org/basic-auth/testuser/testpass",
+            &file_path,
+        )
+        .session_identifier("test-background-download-auth")
+        .auth(Auth::basic("testuser", "testpass"))?
+        .send()
+        .await?;
+
+    // Verify the file was downloaded
+    assert!(file_path.exists(), "Downloaded file should exist");
+    assert!(
+        response.bytes_downloaded > 0,
+        "Should have downloaded some bytes"
+    );
+    assert_eq!(response.status, 200);
+
+    // Verify the response contains authentication confirmation
+    let content = std::fs::read_to_string(&file_path)?;
+    assert!(
+        content.contains("authenticated"),
+        "Response should confirm authentication"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_file(&file_path);
+
+    Ok(())
+}
+
+#[vampire::test]
+async fn test_background_download_creates_directories() -> Result<()> {
+    let client = Client::builder()
+        .backend(backend())
+        .user_agent("frakt-integration-test/1.0")
+        .build()?;
+
+    let temp_dir = temp_dir();
+    let temp_dir = temp_dir.path();
+    let nested_dir = temp_dir.join("frakt_test_nested");
+    let file_path = nested_dir.join("deep").join("nested").join("test.txt");
+
+    // Clean up any existing directory
+    let _ = std::fs::remove_dir_all(&nested_dir);
+
+    println!("Testing background download with directory creation...");
+
+    let _response = client
+        .download_background(
+            "https://httpbin.org/base64/TmVzdGVkIGRpcmVjdG9yeSB0ZXN0",
+            &file_path,
+        )
+        .session_identifier("test-background-download-nested")
+        .send()
+        .await?;
+
+    // Verify the file and directories were created
+    assert!(file_path.exists(), "Downloaded file should exist");
+    assert!(
+        file_path.parent().unwrap().exists(),
+        "Parent directory should exist"
+    );
+
+    let content = std::fs::read_to_string(&file_path)?;
+    assert!(content.contains("Nested directory test"));
+
+    // Clean up
+    let _ = std::fs::remove_dir_all(&nested_dir);
+
+    Ok(())
+}
+
+#[vampire::test]
+async fn test_background_download_with_custom_headers() -> Result<()> {
+    let client = Client::builder()
+        .backend(backend())
+        .user_agent("frakt-integration-test/1.0")
+        .build()?;
+
+    let temp_dir = temp_dir();
+    let temp_dir = temp_dir.path();
+    let file_path = temp_dir.join("test_background_download_headers.json");
+
+    // Clean up any existing file
+    let _ = std::fs::remove_file(&file_path);
+
+    println!("Starting background download with custom headers...");
+
+    let response = client
+        .download_background("https://httpbin.org/headers", &file_path)
+        .session_identifier("test-background-download-headers")
+        .header("X-Custom-Header", "CustomValue")?
+        .header("X-Test-Header", "TestValue")?
+        .send()
+        .await?;
+
+    // Verify the file was downloaded
+    assert!(file_path.exists(), "Downloaded file should exist");
+    assert_eq!(response.status, 200);
+
+    // Verify the response contains our custom headers
+    let content = std::fs::read_to_string(&file_path)?;
+    assert!(
+        content.contains("X-Custom-Header"),
+        "Response should contain custom header"
+    );
+    assert!(
+        content.contains("CustomValue"),
+        "Response should contain custom header value"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_file(&file_path);
+
     Ok(())
 }

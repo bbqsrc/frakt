@@ -26,9 +26,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create background download with required session identifier
     let response = client
-        .download_background(url)
+        .download_background(url, &download_path)
         .session_identifier("com.example.frakt.background")
-        .to_file(&download_path)
         .progress(|bytes_downloaded, total_bytes| {
             if let Some(total) = total_bytes {
                 let percentage = (bytes_downloaded as f64 / total as f64) * 100.0;

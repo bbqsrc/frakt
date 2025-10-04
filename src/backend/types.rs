@@ -2,7 +2,7 @@
 
 use crate::body::Body;
 use http::{HeaderMap, Method, StatusCode};
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::mpsc;
 use url::Url;
 
@@ -18,6 +18,8 @@ pub struct BackendRequest {
     pub body: Option<Body>,
     /// Optional progress callback for uploads
     pub progress_callback: Option<ProgressCallback>,
+    /// Optional timeout for the request
+    pub timeout: Option<Duration>,
 }
 
 /// Platform-agnostic HTTP response
@@ -26,8 +28,12 @@ pub struct BackendResponse {
     pub status: StatusCode,
     /// Response headers
     pub headers: HeaderMap,
+    /// The URL that was requested
+    pub url: Url,
     /// Stream of response body bytes
     pub body_receiver: mpsc::Receiver<Result<bytes::Bytes, crate::Error>>,
+    /// Headers from redirect responses (for cookie processing)
+    pub redirect_headers: Vec<HeaderMap>,
 }
 
 /// Platform-agnostic download handle

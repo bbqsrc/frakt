@@ -18,58 +18,139 @@ pub async fn execute_request(
     request: BackendRequest,
 ) -> Result<BackendResponse> {
     // Create callback handler first
-    let (callback_handler, mut response_rx, _body_rx) = CallbackHandler::new();
+    let (callback_handler, mut response_rx, mut body_rx) = CallbackHandler::new();
     let handler_id = register_callback_handler(callback_handler);
 
-    // Build and start request - each function creates its own env
-    let _url_request_global = build_and_start_request(jvm, cronet_engine, request, handler_id)?;
+    // Save the URL and timeout before moving request
+    let url = request.url.clone();
+    let timeout = request.timeout;
 
-    // Wait for response to start
-    let (status, headers) = match response_rx.recv().await {
-        Some(CallbackEvent::ResponseStarted { status, headers }) => (status, headers),
-        Some(CallbackEvent::Failed { error }) => return Err(error),
-        Some(_) => return Err(Error::Internal("Unexpected callback event".to_string())),
-        None => {
-            return Err(Error::Internal(
-                "Callback channel closed unexpectedly".to_string(),
-            ));
+    // Build and start request - each function creates its own env
+    println!("🚀 Building and starting request to: {}", url);
+    let url_request_global = build_and_start_request(jvm, cronet_engine, request, handler_id)?;
+    println!("🚀 Request started, waiting for response...");
+
+    // Wait for response to start and collect all events until completion
+    println!("🚀 Waiting for response events...");
+
+    let mut status = None;
+    let mut headers = None;
+    let mut body_chunks = Vec::new();
+    let mut redirect_headers = Vec::new();
+
+    // Create timeout future if timeout is specified
+    let timeout_future = async {
+        if let Some(duration) = timeout {
+            tokio::time::sleep(duration).await;
+            true
+        } else {
+            // Never complete if no timeout
+            std::future::pending::<bool>().await
         }
     };
 
-    // Create response body receiver
-    let (body_sender, body_receiver) = mpsc::channel(16);
+    tokio::pin!(timeout_future);
 
-    // Spawn task to handle body streaming - don't hold AttachGuard across await
-    tokio::spawn(async move {
-        // TODO: Implement proper ByteBuffer creation for reading response body
-        // For now, just send placeholder response body
-        let _ = body_sender
-            .send(Ok(Bytes::from("Placeholder response body")))
-            .await;
-    });
+    // Process all events until we get Succeeded, Failed, or timeout
+    let mut succeeded = false;
+    let mut body_channel_closed = false;
 
-    // Wait for final success/failure
-    tokio::spawn(async move {
-        while let Some(event) = response_rx.recv().await {
-            match event {
-                CallbackEvent::Succeeded => {
-                    break; // Request completed successfully
+    loop {
+        // Exit when we've received Succeeded AND drained all body chunks
+        if succeeded && body_channel_closed {
+            break;
+        }
+
+        tokio::select! {
+            // Handle timeout
+            _ = &mut timeout_future => {
+                println!("🚀 Request timed out, cancelling...");
+                // Cancel the request
+                if let Ok(mut env) = jvm.attach_current_thread() {
+                    let _ = env.call_method(url_request_global.as_obj(), "cancel", "()V", &[]);
                 }
-                CallbackEvent::Failed { error } => {
-                    tracing::error!("Request failed: {}", error);
-                    break;
+                return Err(Error::Timeout);
+            }
+            // Handle response events (status, success, failure, redirects)
+            event = response_rx.recv(), if !succeeded => {
+                match event {
+                    Some(CallbackEvent::ResponseStarted { status: s, headers: h }) => {
+                        println!("🚀 Received ResponseStarted: {}", s);
+                        status = Some(s);
+                        headers = Some(h);
+                    }
+                    Some(CallbackEvent::Redirect { headers: h }) => {
+                        println!("🚀 Received Redirect with headers");
+                        redirect_headers.push(h);
+                    }
+                    Some(CallbackEvent::Succeeded) => {
+                        println!("🚀 Received Succeeded, draining body channel...");
+                        succeeded = true;
+                    }
+                    Some(CallbackEvent::Failed { error }) => {
+                        println!("🚀 Received Failed: {:?}", error);
+                        return Err(error);
+                    }
+                    Some(_) => {
+                        return Err(Error::Internal("Unexpected callback event".to_string()));
+                    }
+                    None => {
+                        return Err(Error::Internal("Response channel closed unexpectedly".to_string()));
+                    }
                 }
-                _ => {
-                    // Ignore other events (ReadCompleted is handled in the body streaming task)
+            }
+            // Handle body chunks
+            chunk = body_rx.recv(), if !body_channel_closed => {
+                match chunk {
+                    Some(Ok(data)) => {
+                        println!("🚀 Received body chunk: {} bytes", data.len());
+                        body_chunks.push(data);
+                    }
+                    Some(Err(e)) => {
+                        println!("🚀 Received body error: {:?}", e);
+                        return Err(e);
+                    }
+                    None => {
+                        println!("🚀 Body channel closed");
+                        body_channel_closed = true;
+                    }
                 }
             }
         }
-    });
+    }
 
+    let status = status.ok_or_else(|| Error::Internal("No status received".to_string()))?;
+    let headers = headers.ok_or_else(|| Error::Internal("No headers received".to_string()))?;
+
+    // Combine all body chunks into a single Bytes
+    let total_size: usize = body_chunks.iter().map(|b| b.len()).sum();
+    println!(
+        "🚀 Combining {} chunks ({} total bytes)",
+        body_chunks.len(),
+        total_size
+    );
+
+    let mut body_buffer = Vec::with_capacity(total_size);
+    for chunk in body_chunks {
+        body_buffer.extend_from_slice(&chunk);
+    }
+    let complete_body = Bytes::from(body_buffer);
+
+    // Create a channel with the complete body
+    let (body_sender, body_receiver) = mpsc::channel(1);
+    let _ = body_sender.send(Ok(complete_body)).await;
+    drop(body_sender); // Close the channel after sending the complete body
+
+    println!(
+        "🚀 Request complete, returning response with {} redirect header sets",
+        redirect_headers.len()
+    );
     Ok(BackendResponse {
         status,
         headers,
+        url,
         body_receiver,
+        redirect_headers,
     })
 }
 
@@ -95,16 +176,18 @@ fn create_upload_data_provider(jvm: &JavaVM, body: crate::body::Body) -> Result<
             ));
         }
         crate::body::Body::Bytes { content, .. } => content.to_vec(),
-        crate::body::Body::Form { .. } => {
-            return Err(Error::Internal(
-                "Form data not yet implemented for Android backend".to_string(),
-            ));
+        crate::body::Body::Form { fields } => {
+            // URL-encode form fields
+            let encoded = fields
+                .iter()
+                .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
+                .collect::<Vec<_>>()
+                .join("&");
+            encoded.into_bytes()
         }
         #[cfg(feature = "json")]
-        crate::body::Body::Json { .. } => {
-            return Err(Error::Internal(
-                "JSON data not yet implemented for Android backend".to_string(),
-            ));
+        crate::body::Body::Json { value } => {
+            serde_json::to_vec(&value).map_err(|e| Error::Json(e.to_string()))?
         }
         #[cfg(feature = "multipart")]
         crate::body::Body::Multipart { .. } => {
@@ -119,15 +202,21 @@ fn create_upload_data_provider(jvm: &JavaVM, body: crate::body::Body) -> Result<
         .byte_array_from_slice(&body_bytes)
         .map_err(|e| Error::Internal(format!("Failed to create byte array: {}", e)))?;
 
-    // Create UploadDataProvider (placeholder implementation)
-    let provider_class = env
-        .find_class("org/chromium/net/UploadDataProvider")
-        .map_err(|e| Error::Internal(format!("Failed to find UploadDataProvider class: {}", e)))?;
+    // Use UploadDataProviders.create(byte[]) to create a provider from the byte array
+    let providers_class = env
+        .find_class("org/chromium/net/UploadDataProviders")
+        .map_err(|e| Error::Internal(format!("Failed to find UploadDataProviders class: {}", e)))?;
 
-    // This is a placeholder - in reality you'd create a custom UploadDataProvider
     let provider = env
-        .new_object(provider_class, "()V", &[])
-        .map_err(|e| Error::Internal(format!("Failed to create UploadDataProvider: {}", e)))?;
+        .call_static_method(
+            providers_class,
+            "create",
+            "([B)Lorg/chromium/net/UploadDataProvider;",
+            &[(&byte_array).into()],
+        )
+        .map_err(|e| Error::Internal(format!("Failed to create UploadDataProvider: {}", e)))?
+        .l()
+        .map_err(|e| Error::Internal(format!("Failed to convert UploadDataProvider: {}", e)))?;
 
     env.new_global_ref(&provider).map_err(|e| {
         Error::Internal(format!(
@@ -187,7 +276,36 @@ fn build_and_start_request(
             .set_http_method(method)
             .map_err(|e| Error::Internal(format!("Failed to set HTTP method: {}", e)))?;
 
-        // Add headers
+        // Determine Content-Type from body if present
+        let content_type = if let Some(ref body) = request.body {
+            match body {
+                crate::body::Body::Bytes { content_type, .. } => Some(content_type.clone()),
+                crate::body::Body::Form { .. } => {
+                    Some("application/x-www-form-urlencoded".to_string())
+                }
+                #[cfg(feature = "json")]
+                crate::body::Body::Json { .. } => Some("application/json".to_string()),
+                #[cfg(feature = "multipart")]
+                crate::body::Body::Multipart { .. } => {
+                    // Multipart needs a boundary, but since it's not implemented yet, use a placeholder
+                    Some("multipart/form-data".to_string())
+                }
+                crate::body::Body::Empty => None,
+            }
+        } else {
+            None
+        };
+
+        // Add Content-Type header if we have a body and it's not already set
+        if let Some(ct) = content_type {
+            if !request.headers.contains_key("content-type") {
+                builder.add_header("Content-Type", &ct).map_err(|e| {
+                    Error::Internal(format!("Failed to add Content-Type header: {}", e))
+                })?;
+            }
+        }
+
+        // Add other headers
         for (name, value) in &request.headers {
             let name_str = name.as_str();
             let value_str = std::str::from_utf8(value.as_bytes())
@@ -197,6 +315,9 @@ fn build_and_start_request(
                 Error::Internal(format!("Failed to add header {}: {}", name_str, e))
             })?;
         }
+
+        // Note: Timeout is handled in execute_request() by cancelling the request
+        // Cronet doesn't have a built-in setTimeout method
 
         // Handle request body if present
         if let Some(body) = request.body {
@@ -215,8 +336,10 @@ fn build_and_start_request(
     };
 
     // Start the request
+    println!("🚀 Calling request.start()...");
     env.call_method(&url_request, "start", "()V", &[])
         .map_err(|e| Error::Internal(format!("Failed to start request: {}", e)))?;
+    println!("🚀 request.start() returned successfully");
 
     // Return global reference
     env.new_global_ref(&url_request)

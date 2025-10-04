@@ -64,8 +64,7 @@
 //!     let client = Client::new()?;
 //!
 //!     let response = client
-//!         .download("https://example.com/large-file.zip")?
-//!         .to_file("./downloads/file.zip")
+//!         .download("https://example.com/large-file.zip", "./downloads/file.zip")?
 //!         .progress(|downloaded, total| {
 //!             if let Some(total) = total {
 //!                 let percent = (downloaded as f64 / total as f64) * 100.0;
@@ -155,9 +154,8 @@
 //!     let client = Client::new()?;
 //!
 //!     let response = client
-//!         .download_background("https://example.com/large-video.mp4")
+//!         .download_background("https://example.com/large-video.mp4", "./downloads/video.mp4")
 //!         .session_identifier("com.myapp.downloads")
-//!         .to_file("./downloads/video.mp4")
 //!         .progress(|downloaded, total| {
 //!             if let Some(total) = total {
 //!                 let percent = (downloaded as f64 / total as f64) * 100.0;

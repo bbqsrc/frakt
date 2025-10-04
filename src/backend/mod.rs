@@ -11,6 +11,9 @@ pub mod windows;
 #[cfg(target_os = "android")]
 pub mod android;
 
+#[cfg(target_os = "android")]
+pub use android::{check_permission, list_permissions, start_netlog, stop_netlog, test_dns};
+
 pub mod reqwest;
 
 use crate::{
@@ -267,16 +270,14 @@ impl CookieStorage {
             }
             #[cfg(all(target_os = "android", not(target_vendor = "apple")))]
             Backend::Android(android) => {
-                CookieStorage::Android(
-                    android::AndroidCookieStorage::new(android.jvm).unwrap_or_else(|_| {
-                        tracing::warn!(
-                            "Failed to create Android cookie storage, falling back to reqwest"
-                        );
-                        // This won't compile as we can't mix enum variants, but shows the intent
-                        // In practice, you'd need a Result return type or handle this differently
-                        panic!("Android cookie storage creation failed")
-                    }),
-                )
+                CookieStorage::Android(android::AndroidCookieStorage::new().unwrap_or_else(|_| {
+                    tracing::warn!(
+                        "Failed to create Android cookie storage, falling back to reqwest"
+                    );
+                    // This won't compile as we can't mix enum variants, but shows the intent
+                    // In practice, you'd need a Result return type or handle this differently
+                    panic!("Android cookie storage creation failed")
+                }))
             }
             #[cfg(windows)]
             Backend::Windows(_) => {

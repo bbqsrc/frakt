@@ -900,7 +900,9 @@ async fn execute_async_winhttp(
         Ok(BackendResponse {
             status,
             headers: response_headers,
+            url: request.url,
             body_receiver: rx,
+            redirect_headers: vec![],
         })
     }
 }

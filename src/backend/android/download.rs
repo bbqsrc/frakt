@@ -13,6 +13,7 @@ pub async fn execute_background_download(
     file_path: PathBuf,
     session_identifier: Option<String>,
     headers: http::HeaderMap,
+    _error_for_status: bool,
     progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
 ) -> Result<crate::client::download::DownloadResponse> {
     let mut env = jvm
@@ -139,18 +140,34 @@ fn create_download_request(jvm: &JavaVM, url: &Url, file_path: &PathBuf) -> Resu
         .new_object(request_class, "(Landroid/net/Uri;)V", &[(&uri).into()])
         .map_err(|e| Error::Internal(format!("Failed to create DownloadManager.Request: {}", e)))?;
 
-    // Set destination file
-    let destination_string = env
-        .new_string(file_path.to_string_lossy())
-        .map_err(|e| Error::Internal(format!("Failed to create destination path string: {}", e)))?;
+    // Ensure parent directory exists
+    if let Some(parent) = file_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| Error::Internal(format!("Failed to create parent directory: {}", e)))?;
+    }
 
-    let download_str = &env.new_string("Download").unwrap(); // Typically "Download" directory
+    // Create file:// URI for the destination
+    let file_uri_string = format!("file://{}", file_path.to_string_lossy());
+    let destination_uri_string = env
+        .new_string(&file_uri_string)
+        .map_err(|e| Error::Internal(format!("Failed to create destination URI string: {}", e)))?;
+
+    let destination_uri = env
+        .call_static_method(
+            "android/net/Uri",
+            "parse",
+            "(Ljava/lang/String;)Landroid/net/Uri;",
+            &[(&destination_uri_string).into()],
+        )
+        .map_err(|e| Error::Internal(format!("Failed to parse destination URI: {}", e)))?
+        .l()
+        .map_err(|e| Error::Internal(format!("Failed to get destination URI object: {}", e)))?;
 
     env.call_method(
         &request,
-        "setDestinationInExternalPublicDir",
-        "(Ljava/lang/String;Ljava/lang/String;)Landroid/app/DownloadManager$Request;",
-        &[(&download_str).into(), (&destination_string).into()],
+        "setDestinationUri",
+        "(Landroid/net/Uri;)Landroid/app/DownloadManager$Request;",
+        &[(&destination_uri).into()],
     )
     .map_err(|e| Error::Internal(format!("Failed to set download destination: {}", e)))?;
 
@@ -287,9 +304,12 @@ async fn create_download_response(
         }
     });
 
+    // TODO: Capture actual status and headers from DownloadManager
     Ok(crate::client::download::DownloadResponse {
         file_path,
         bytes_downloaded: 0, // TODO: Get actual bytes downloaded from DownloadManager
+        status: http::StatusCode::OK,
+        headers: http::HeaderMap::new(),
     })
 }
 

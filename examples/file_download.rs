@@ -17,8 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Download a file with progress tracking
     let download_response = client
-        .download("https://httpbin.org/bytes/10240")? // Download 10KB
-        .to_file("downloaded_file.bin")
+        .download("https://httpbin.org/bytes/10240", "downloaded_file.bin")? // Download 10KB
         .progress(|downloaded, total| match total {
             Some(total_bytes) => {
                 let percentage = (downloaded as f64 / total_bytes as f64) * 100.0;

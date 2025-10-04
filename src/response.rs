@@ -7,11 +7,13 @@ use crate::{Error, Result};
 use bytes::Bytes;
 use http::{HeaderMap, StatusCode};
 use tokio::sync::mpsc;
+use url::Url;
 
 /// HTTP response from any backend
 pub struct Response {
     status: StatusCode,
     headers: HeaderMap,
+    url: Url,
     body_receiver: mpsc::Receiver<Result<Bytes>>,
 }
 
@@ -19,6 +21,7 @@ impl Debug for Response {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Response")
             .field("status", &self.status)
+            .field("url", &self.url)
             .field("headers", &self.headers)
             .finish()
     }
@@ -30,6 +33,7 @@ impl Response {
         Self {
             status: backend_response.status,
             headers: backend_response.headers,
+            url: backend_response.url,
             body_receiver: backend_response.body_receiver,
         }
     }
@@ -37,6 +41,11 @@ impl Response {
     /// Get the status code
     pub fn status(&self) -> StatusCode {
         self.status
+    }
+
+    /// Get the URL that was requested
+    pub fn url(&self) -> &Url {
+        &self.url
     }
 
     /// Get the headers

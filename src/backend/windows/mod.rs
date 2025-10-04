@@ -94,6 +94,7 @@ impl WindowsBackend {
         session_identifier: Option<String>,
         headers: http::HeaderMap,
         progress_callback: Option<Box<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
+        _error_for_status: bool,
     ) -> Result<crate::client::download::DownloadResponse> {
         // Try BITS first if available, fall back to regular download
         if let Some(ref bits_manager) = self.bits_manager {

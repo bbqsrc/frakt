@@ -12,6 +12,10 @@ import java.nio.ByteBuffer;
  * All methods are native and implemented in Rust.
  */
 public class RustUrlRequestCallback extends UrlRequest.Callback {
+    // static {
+    //     System.loadLibrary("frakt");
+    // }
+
     private final long handlerId;
 
     public RustUrlRequestCallback(long handlerId) {
@@ -19,33 +23,71 @@ public class RustUrlRequestCallback extends UrlRequest.Callback {
     }
 
     @Override
-    public native void onRedirectReceived(
+    public void onRedirectReceived(
+        UrlRequest request,
+        UrlResponseInfo info,
+        String newLocationUrl
+    ) throws Exception {
+        nativeOnRedirectReceived(request, info, newLocationUrl);
+    }
+
+    @Override
+    public void onResponseStarted(
+        UrlRequest request,
+        UrlResponseInfo info
+    ) throws Exception {
+        nativeOnResponseStarted(request, info);
+    }
+
+    @Override
+    public void onReadCompleted(
+        UrlRequest request,
+        UrlResponseInfo info,
+        ByteBuffer byteBuffer
+    ) throws Exception {
+        nativeOnReadCompleted(request, info, byteBuffer);
+    }
+
+    @Override
+    public void onSucceeded(
+        UrlRequest request,
+        UrlResponseInfo info
+    ) {
+        nativeOnSucceeded(request, info);
+    }
+
+    @Override
+    public void onFailed(
+        UrlRequest request,
+        UrlResponseInfo info,
+        CronetException error
+    ) {
+        nativeOnFailed(request, info, error);
+    }
+
+    private native void nativeOnRedirectReceived(
         UrlRequest request,
         UrlResponseInfo info,
         String newLocationUrl
     ) throws Exception;
 
-    @Override
-    public native void onResponseStarted(
+    private native void nativeOnResponseStarted(
         UrlRequest request,
         UrlResponseInfo info
     ) throws Exception;
 
-    @Override
-    public native void onReadCompleted(
+    private native void nativeOnReadCompleted(
         UrlRequest request,
         UrlResponseInfo info,
         ByteBuffer byteBuffer
     ) throws Exception;
 
-    @Override
-    public native void onSucceeded(
+    private native void nativeOnSucceeded(
         UrlRequest request,
         UrlResponseInfo info
     );
 
-    @Override
-    public native void onFailed(
+    private native void nativeOnFailed(
         UrlRequest request,
         UrlResponseInfo info,
         CronetException error

@@ -65,12 +65,13 @@ impl<'a> UrlRequestBuilder<'a> {
     ) -> Result<Self, jni::errors::Error> {
         let url_jstring = env.new_string(url)?;
 
-        // Create the executor first to avoid multiple mutable borrows
+        // Create an executor using Java's Executors.newCachedThreadPool()
+        let executors_class = env.find_class("java/util/concurrent/Executors")?;
         let executor = env
-            .call_method(
-                engine,
-                "createDefaultExecutor",
-                "()Ljava/util/concurrent/Executor;",
+            .call_static_method(
+                executors_class,
+                "newCachedThreadPool",
+                "()Ljava/util/concurrent/ExecutorService;",
                 &[],
             )?
             .l()?;
@@ -82,7 +83,6 @@ impl<'a> UrlRequestBuilder<'a> {
             &[
                 (&url_jstring).into(),
                 callback.into(),
-                // We'll use the default executor for now - in practice might want to provide our own
                 (&executor).into(),
             ],
         )?;

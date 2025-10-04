@@ -326,7 +326,9 @@ impl ReqwestBackend {
         Ok(BackendResponse {
             status,
             headers: header_map,
+            url: request.url,
             body_receiver: rx,
+            redirect_headers: vec![],
         })
     }
 

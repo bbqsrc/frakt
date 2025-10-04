@@ -29,12 +29,12 @@ pub struct BackgroundDownloadBuilder {
 
 impl BackgroundDownloadBuilder {
     /// Create a new background download builder (internal use)
-    pub(crate) fn new(backend: Backend, url: Url) -> Self {
+    pub(crate) fn new(backend: Backend, url: Url, file_path: std::path::PathBuf) -> Self {
         Self {
             backend,
             url,
             session_identifier: None,
-            file_path: None,
+            file_path: Some(file_path),
             headers: HeaderMap::new(),
             progress_callback: None,
             error_for_status: true,
@@ -58,9 +58,8 @@ impl BackgroundDownloadBuilder {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
-    ///     .download_background("https://httpbin.org/bytes/10485760") // 10MB
+    ///     .download_background("https://httpbin.org/bytes/10485760", "updates/app-v1.2.3.zip") // 10MB
     ///     .session_identifier("my-app-update-v1.2.3")
-    ///     .to_file("updates/app-v1.2.3.zip")
     ///     .send()
     ///     .await?;
     /// # Ok(())
@@ -68,40 +67,6 @@ impl BackgroundDownloadBuilder {
     /// ```
     pub fn session_identifier(mut self, identifier: impl Into<String>) -> Self {
         self.session_identifier = Some(identifier.into());
-        self
-    }
-
-    /// Set the destination file path for the background download.
-    ///
-    /// The file will be created at the specified path. If the parent directories
-    /// don't exist, they will be created automatically. The download will continue
-    /// in the background and survive app termination on supported platforms.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The local file path where the downloaded content should be saved
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use frakt::Client;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client
-    ///     .download_background("https://httpbin.org/bytes/104857600") // 100MB
-    ///     .to_file("downloads/large_file.zip")
-    ///     .progress(|downloaded, total| {
-    ///         if let Some(total) = total {
-    ///             println!("Background download: {}%", (downloaded * 100) / total);
-    ///         }
-    ///     })
-    ///     .send()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn to_file<P: AsRef<std::path::Path>>(mut self, path: P) -> Self {
-        self.file_path = Some(path.as_ref().to_path_buf());
         self
     }
 
@@ -129,8 +94,7 @@ impl BackgroundDownloadBuilder {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
-    ///     .download_background("https://httpbin.org/bytes/1073741824") // 1GB
-    ///     .to_file("huge_download.bin")
+    ///     .download_background("https://httpbin.org/bytes/1073741824", "huge_download.bin") // 1GB
     ///     .progress(|bytes_downloaded, total_bytes| {
     ///         match total_bytes {
     ///             Some(total) => {
@@ -185,9 +149,8 @@ impl BackgroundDownloadBuilder {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
-    ///     .download_background("https://api.example.com/protected-large-file.zip")?
+    ///     .download_background("https://api.example.com/protected-large-file.zip", "protected_large_file.zip")?
     ///     .session_identifier("protected-download")
-    ///     .to_file("protected_large_file.zip")
     ///     .header("Authorization", "Bearer token123")?
     ///     .header("User-Agent", "MyApp/1.0")?
     ///     .send()
@@ -233,18 +196,16 @@ impl BackgroundDownloadBuilder {
     ///
     /// // Bearer token for authenticated background download
     /// let response = client
-    ///     .download_background("https://api.example.com/premium-content.zip")?
+    ///     .download_background("https://api.example.com/premium-content.zip", "premium_content.zip")?
     ///     .session_identifier("premium-content-download")
-    ///     .to_file("premium_content.zip")
     ///     .auth(Auth::bearer("your-api-token"))?
     ///     .send()
     ///     .await?;
     ///
     /// // Basic authentication
     /// let response = client
-    ///     .download_background("https://secure.example.com/data.zip")?
+    ///     .download_background("https://secure.example.com/data.zip", "secure_data.zip")?
     ///     .session_identifier("secure-data-download")
-    ///     .to_file("secure_data.zip")
     ///     .auth(Auth::basic("username", "password"))?
     ///     .send()
     ///     .await?;
@@ -279,9 +240,8 @@ impl BackgroundDownloadBuilder {
     ///
     /// // Download a 404 error page in background
     /// let response = client
-    ///     .download_background("https://httpbin.org/status/404")?
+    ///     .download_background("https://httpbin.org/status/404", "error.html")?
     ///     .session_identifier("test-404")
-    ///     .to_file("error.html")
     ///     .error_for_status(false)
     ///     .send()
     ///     .await?;
@@ -308,9 +268,8 @@ impl BackgroundDownloadBuilder {
     ///
     /// // Download a 404 error page in background
     /// let response = client
-    ///     .download_background("https://httpbin.org/status/404")?
+    ///     .download_background("https://httpbin.org/status/404", "error.html")?
     ///     .session_identifier("test-404")
-    ///     .to_file("error.html")
     ///     .allow_error_status()
     ///     .send()
     ///     .await?;
@@ -354,9 +313,8 @@ impl BackgroundDownloadBuilder {
     ///
     /// // Start a background download that survives app termination
     /// let response = client
-    ///     .download_background("https://httpbin.org/bytes/1073741824") // 1GB
+    ///     .download_background("https://httpbin.org/bytes/1073741824", "updates/app-v2.0.dmg") // 1GB
     ///     .session_identifier("app-update-v2.0")
-    ///     .to_file("updates/app-v2.0.dmg")
     ///     .progress(|downloaded, total| {
     ///         // This will be called even after app restart on supported platforms
     ///         if let Some(total) = total {

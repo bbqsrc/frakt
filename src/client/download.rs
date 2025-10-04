@@ -17,8 +17,7 @@ use crate::backend::Backend;
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
 /// let response = client
-///     .download("https://httpbin.org/base64/SGVsbG8gV29ybGQ=")?
-///     .to_file("hello.txt")
+///     .download("https://httpbin.org/base64/SGVsbG8gV29ybGQ=", "hello.txt")?
 ///     .send()
 ///     .await?;
 ///
@@ -59,8 +58,7 @@ pub struct DownloadResponse {
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
 /// let response = client
-///     .download("https://httpbin.org/base64/SGVsbG8gV29ybGQ=")?
-///     .to_file("downloaded_file.txt")
+///     .download("https://httpbin.org/base64/SGVsbG8gV29ybGQ=", "downloaded_file.txt")?
 ///     .send()
 ///     .await?;
 ///
@@ -78,8 +76,7 @@ pub struct DownloadResponse {
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
 /// let response = client
-///     .download("https://httpbin.org/bytes/1048576")? // 1MB
-///     .to_file("large_file.bin")
+///     .download("https://httpbin.org/bytes/1048576", "large_file.bin")? // 1MB
 ///     .progress(|downloaded, total| {
 ///         if let Some(total) = total {
 ///             let percent = (downloaded as f64 / total as f64) * 100.0;
@@ -101,8 +98,7 @@ pub struct DownloadResponse {
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::new()?;
 /// let response = client
-///     .download("https://api.example.com/protected/document.pdf")?
-///     .to_file("protected_document.pdf")
+///     .download("https://api.example.com/protected/document.pdf", "protected_document.pdf")?
 ///     .auth(Auth::bearer("your-api-token"))?
 ///     .header("User-Agent", "MyApp/1.0")?
 ///     .progress(|downloaded, total| {
@@ -129,44 +125,15 @@ pub struct DownloadBuilder {
 
 impl DownloadBuilder {
     /// Create a new download builder (internal use)
-    pub(crate) fn new(backend: Backend, url: Url) -> Self {
+    pub(crate) fn new(backend: Backend, url: Url, file_path: std::path::PathBuf) -> Self {
         Self {
             backend,
             url,
-            file_path: None,
+            file_path: Some(file_path),
             headers: HeaderMap::new(),
             progress_callback: None,
             error_for_status: true,
         }
-    }
-
-    /// Set the destination file path for the download.
-    ///
-    /// The file will be created at the specified path. If the parent directories
-    /// don't exist, they will be created automatically. If a file already exists
-    /// at the path, it will be overwritten.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The local file path where the downloaded content should be saved
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use frakt::Client;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::new()?;
-    /// let response = client
-    ///     .download("https://httpbin.org/json")?
-    ///     .to_file("data/response.json")  // Creates 'data' dir if needed
-    ///     .send()
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub fn to_file<P: AsRef<std::path::Path>>(mut self, path: P) -> Self {
-        self.file_path = Some(path.as_ref().to_path_buf());
-        self
     }
 
     /// Set a progress callback to monitor download progress.
@@ -187,8 +154,7 @@ impl DownloadBuilder {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
-    ///     .download("https://httpbin.org/bytes/1048576")? // 1MB file
-    ///     .to_file("large_download.bin")
+    ///     .download("https://httpbin.org/bytes/1048576", "large_download.bin")? // 1MB file
     ///     .progress(|bytes_downloaded, total_bytes| {
     ///         match total_bytes {
     ///             Some(total) => {
@@ -233,8 +199,7 @@ impl DownloadBuilder {
     ///
     /// // Download a 404 error page
     /// let response = client
-    ///     .download("https://httpbin.org/status/404")?
-    ///     .to_file("error.html")
+    ///     .download("https://httpbin.org/status/404", "error.html")?
     ///     .error_for_status(false)
     ///     .send()
     ///     .await?;
@@ -261,8 +226,7 @@ impl DownloadBuilder {
     ///
     /// // Download a 404 error page
     /// let response = client
-    ///     .download("https://httpbin.org/status/404")?
-    ///     .to_file("error.html")
+    ///     .download("https://httpbin.org/status/404", "error.html")?
     ///     .allow_error_status()
     ///     .send()
     ///     .await?;
@@ -302,8 +266,7 @@ impl DownloadBuilder {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
-    ///     .download("https://api.example.com/protected-file.pdf")?
-    ///     .to_file("downloaded.pdf")
+    ///     .download("https://api.example.com/protected-file.pdf", "downloaded.pdf")?
     ///     .header("Authorization", "Bearer token123")?
     ///     .header("User-Agent", "MyApp/1.0")?
     ///     .send()
@@ -349,16 +312,14 @@ impl DownloadBuilder {
     ///
     /// // Bearer token
     /// let response = client
-    ///     .download("https://api.example.com/protected-file.zip")?
-    ///     .to_file("protected.zip")
+    ///     .download("https://api.example.com/protected-file.zip", "protected.zip")?
     ///     .auth(Auth::bearer("your-api-token"))?
     ///     .send()
     ///     .await?;
     ///
     /// // Basic authentication
     /// let response = client
-    ///     .download("https://secure.example.com/file.pdf")?
-    ///     .to_file("secure.pdf")
+    ///     .download("https://secure.example.com/file.pdf", "secure.pdf")?
     ///     .auth(Auth::basic("username", "password"))?
     ///     .send()
     ///     .await?;
@@ -402,8 +363,7 @@ impl DownloadBuilder {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
-    ///     .download("https://httpbin.org/json")?
-    ///     .to_file("response.json")
+    ///     .download("https://httpbin.org/json", "response.json")?
     ///     .send()
     ///     .await?;
     ///

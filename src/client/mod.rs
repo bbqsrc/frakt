@@ -297,12 +297,13 @@ impl Client {
     /// Create a download builder for streaming downloads to disk.
     ///
     /// The download builder provides a fluent interface for configuring file downloads,
-    /// including the destination path and progress monitoring. Downloads are streamed
-    /// directly to disk to handle large files efficiently.
+    /// including progress monitoring. Downloads are streamed directly to disk to handle
+    /// large files efficiently.
     ///
     /// # Arguments
     ///
     /// * `url` - The URL to download from
+    /// * `path` - The local file path where the downloaded content should be saved
     ///
     /// # Examples
     ///
@@ -311,8 +312,7 @@ impl Client {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
-    ///     .download("https://httpbin.org/bytes/1048576")? // 1MB file
-    ///     .to_file("large_file.bin")
+    ///     .download("https://httpbin.org/bytes/1048576", "large_file.bin")? // 1MB file
     ///     .progress(|downloaded, total| {
     ///         if let Some(total) = total {
     ///             println!("Progress: {}%", (downloaded * 100) / total);
@@ -325,10 +325,15 @@ impl Client {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn download(&self, url: impl TryInto<Url>) -> crate::Result<DownloadBuilder> {
+    pub fn download<P: AsRef<std::path::Path>>(
+        &self,
+        url: impl TryInto<Url>,
+        path: P,
+    ) -> crate::Result<DownloadBuilder> {
         Ok(DownloadBuilder::new(
             self.backend.clone(),
             url.try_into().map_err(|_| crate::Error::InvalidUrl)?,
+            path.as_ref().to_path_buf(),
         ))
     }
 
@@ -343,6 +348,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `url` - The URL to download from
+    /// * `path` - The local file path where the downloaded content should be saved
     ///
     /// # Examples
     ///
@@ -351,9 +357,8 @@ impl Client {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
-    ///     .download_background("https://httpbin.org/bytes/1073741824") // 1GB file
+    ///     .download_background("https://httpbin.org/bytes/1073741824", "updates/app-v2.0.dmg") // 1GB file
     ///     .session_identifier("app-update-v2.0")
-    ///     .to_file("updates/app-v2.0.dmg")
     ///     .progress(|downloaded, total| {
     ///         if let Some(total) = total {
     ///             println!("Background download: {}%", (downloaded * 100) / total);
@@ -367,12 +372,17 @@ impl Client {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn download_background(&self, url: impl TryInto<Url>) -> BackgroundDownloadBuilder {
+    pub fn download_background<P: AsRef<std::path::Path>>(
+        &self,
+        url: impl TryInto<Url>,
+        path: P,
+    ) -> BackgroundDownloadBuilder {
         BackgroundDownloadBuilder::new(
             self.backend.clone(),
             url.try_into()
                 .map_err(|_| crate::Error::InvalidUrl)
                 .unwrap(),
+            path.as_ref().to_path_buf(),
         )
     }
 

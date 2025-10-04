@@ -344,7 +344,9 @@ impl FoundationBackend {
         Ok(BackendResponse {
             status: status_code,
             headers,
+            url: request.url,
             body_receiver: rx,
+            redirect_headers: vec![],
         })
     }
 
