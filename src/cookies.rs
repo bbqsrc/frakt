@@ -92,10 +92,12 @@ impl CookieJar {
     /// # Examples
     ///
     /// ```rust
-    /// use frakt::CookieJar;
+    /// use frakt::{CookieJar, backend::Backend};
     ///
-    /// # fn main() {
-    /// let jar = CookieJar::new();
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let backend = Backend::reqwest()?;
+    /// let jar = CookieJar::new(backend);
+    /// # Ok(())
     /// # }
     /// ```
     pub fn new(backend: Backend) -> Self {

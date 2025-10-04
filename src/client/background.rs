@@ -149,7 +149,7 @@ impl BackgroundDownloadBuilder {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = Client::new()?;
     /// let response = client
-    ///     .download_background("https://api.example.com/protected-large-file.zip", "protected_large_file.zip")?
+    ///     .download_background("https://api.example.com/protected-large-file.zip", "protected_large_file.zip")
     ///     .session_identifier("protected-download")
     ///     .header("Authorization", "Bearer token123")?
     ///     .header("User-Agent", "MyApp/1.0")?
@@ -196,7 +196,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// // Bearer token for authenticated background download
     /// let response = client
-    ///     .download_background("https://api.example.com/premium-content.zip", "premium_content.zip")?
+    ///     .download_background("https://api.example.com/premium-content.zip", "premium_content.zip")
     ///     .session_identifier("premium-content-download")
     ///     .auth(Auth::bearer("your-api-token"))?
     ///     .send()
@@ -204,7 +204,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// // Basic authentication
     /// let response = client
-    ///     .download_background("https://secure.example.com/data.zip", "secure_data.zip")?
+    ///     .download_background("https://secure.example.com/data.zip", "secure_data.zip")
     ///     .session_identifier("secure-data-download")
     ///     .auth(Auth::basic("username", "password"))?
     ///     .send()
@@ -240,7 +240,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// // Download a 404 error page in background
     /// let response = client
-    ///     .download_background("https://httpbin.org/status/404", "error.html")?
+    ///     .download_background("https://httpbin.org/status/404", "error.html")
     ///     .session_identifier("test-404")
     ///     .error_for_status(false)
     ///     .send()
@@ -268,7 +268,7 @@ impl BackgroundDownloadBuilder {
     ///
     /// // Download a 404 error page in background
     /// let response = client
-    ///     .download_background("https://httpbin.org/status/404", "error.html")?
+    ///     .download_background("https://httpbin.org/status/404", "error.html")
     ///     .session_identifier("test-404")
     ///     .allow_error_status()
     ///     .send()
