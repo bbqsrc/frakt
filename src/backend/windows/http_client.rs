@@ -69,7 +69,7 @@ type AsyncResult = Result<()>;
 /// Context data passed to WinHTTP callback for cookie handling, progress tracking, and async signaling
 #[repr(C)]
 struct CallbackContext {
-    cookie_storage: Option<super::cookies::WindowsCookieStorage>,
+    cookie_storage: Option<std::sync::Arc<crate::backend::CookieStoreImpl>>,
     request_url: url::Url,
     progress_callback: Option<Arc<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
     total_body_size: u64,
@@ -417,13 +417,16 @@ pub async fn execute_winhttp_request(
     user_agent: &str,
     default_headers: &Option<http::HeaderMap>,
     timeout: &Option<Duration>,
-    cookie_storage: &Option<super::cookies::WindowsCookieStorage>,
+    cookie_storage: &Option<std::sync::Arc<crate::backend::CookieStoreImpl>>,
 ) -> Result<BackendResponse> {
     let url = request.url;
     let method = request.method;
     let headers = request.headers;
     let body = request.body;
     let progress_callback = request.progress_callback;
+
+    // Use request timeout if specified, otherwise fall back to backend timeout
+    let effective_timeout = request.timeout.as_ref().or(timeout.as_ref());
 
     // Parse URL components
     let scheme = url.scheme();
@@ -482,7 +485,7 @@ pub async fn execute_winhttp_request(
         default_headers,
         &body_bytes,
         body_content_type,
-        timeout,
+        effective_timeout,
         cookie_storage,
         &progress_callback,
     )
@@ -502,8 +505,8 @@ async fn execute_async_winhttp(
     default_headers: &Option<http::HeaderMap>,
     body_bytes: &[u8],
     body_content_type: Option<&str>,
-    timeout: &Option<Duration>,
-    cookie_storage: &Option<super::cookies::WindowsCookieStorage>,
+    timeout: Option<&Duration>,
+    cookie_storage: &Option<std::sync::Arc<crate::backend::CookieStoreImpl>>,
     progress_callback: &Option<Arc<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>>,
 ) -> Result<BackendResponse> {
     // Build headers string
@@ -900,7 +903,7 @@ async fn execute_async_winhttp(
         Ok(BackendResponse {
             status,
             headers: response_headers,
-            url: request.url,
+            url: url.clone(),
             body_receiver: rx,
             redirect_headers: vec![],
         })
@@ -928,7 +931,7 @@ fn parse_headers_into_map(header_string: &str, headers: &mut http::HeaderMap) {
 fn store_cookies_from_headers(
     header_string: &str,
     url: &url::Url,
-    cookie_storage: &super::cookies::WindowsCookieStorage,
+    cookie_storage: &std::sync::Arc<crate::backend::CookieStoreImpl>,
 ) {
     // Convert the header string into an http::HeaderMap to use with cookie_store
     let mut headers = http::HeaderMap::new();

@@ -182,6 +182,8 @@ impl BitsDownloadManager {
         Ok(crate::client::download::DownloadResponse {
             file_path,
             bytes_downloaded,
+            status: http::StatusCode::OK,
+            headers: http::HeaderMap::new(),
         })
     }
 

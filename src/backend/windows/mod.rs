@@ -121,9 +121,13 @@ impl WindowsBackend {
                 std::sync::Arc::new(cb)
                     as std::sync::Arc<dyn Fn(u64, Option<u64>) + Send + Sync + 'static>
             }),
+            timeout: self.timeout,
         };
 
         let response = self.execute(request).await?;
+
+        let status = response.status;
+        let headers = response.headers;
 
         // Stream response to file
         let mut file = tokio::fs::File::create(&file_path)
@@ -145,6 +149,8 @@ impl WindowsBackend {
         Ok(crate::client::download::DownloadResponse {
             file_path,
             bytes_downloaded,
+            status,
+            headers,
         })
     }
 

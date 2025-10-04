@@ -48,6 +48,7 @@ async fn test_backend(backend: Backend, name: &str) -> Result<(), Box<dyn std::e
         headers: HeaderMap::new(),
         body: None,
         progress_callback: None,
+        timeout: None,
     };
 
     match backend.execute(request).await {

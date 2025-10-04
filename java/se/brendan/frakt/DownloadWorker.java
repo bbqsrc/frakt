@@ -1,8 +1,13 @@
 package se.brendan.frakt;
 
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
+import android.os.Build;
 import androidx.annotation.NonNull;
+import androidx.core.app.NotificationCompat;
 import androidx.work.Data;
+import androidx.work.ForegroundInfo;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
@@ -28,6 +33,10 @@ public class DownloadWorker extends Worker {
         System.out.flush();
         try {
             System.out.println("🔧 DownloadWorker.doWork() in try block");
+
+            // Promote to foreground service for long-running download
+            setForegroundAsync(createForegroundInfo());
+            System.out.println("🔧 Set foreground async");
 
             // Get input data
             String url = getInputData().getString("url");
@@ -78,4 +87,33 @@ public class DownloadWorker extends Worker {
     }
 
     private native int nativeDownload(String url, String filePath, String headersJson, DownloadProgressCallback callback);
+
+    @NonNull
+    private ForegroundInfo createForegroundInfo() {
+        String channelId = "download_channel";
+        String title = "Background Download";
+
+        // Create notification channel for Android O+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                channelId,
+                "Downloads",
+                NotificationManager.IMPORTANCE_LOW
+            );
+            NotificationManager notificationManager =
+                (NotificationManager) getApplicationContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            if (notificationManager != null) {
+                notificationManager.createNotificationChannel(channel);
+            }
+        }
+
+        // Build notification
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(getApplicationContext(), channelId)
+            .setContentTitle(title)
+            .setContentText("Downloading file...")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setOngoing(true);
+
+        return new ForegroundInfo(1, builder.build());
+    }
 }

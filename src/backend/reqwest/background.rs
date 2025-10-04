@@ -250,6 +250,8 @@ pub async fn execute_resumable_background_download(
                 return Ok(crate::client::download::DownloadResponse {
                     file_path,
                     bytes_downloaded: total_bytes,
+                    status: http::StatusCode::OK,
+                    headers: http::HeaderMap::new(),
                 });
             }
             Err(e) => {

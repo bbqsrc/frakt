@@ -23,6 +23,10 @@ public abstract class ListenableWorker {
         // Stub implementation
     }
 
+    public void setForegroundAsync(ForegroundInfo foregroundInfo) {
+        // Stub implementation
+    }
+
     public static abstract class Result {
         public static Result success() {
             return new Success();
