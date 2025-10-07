@@ -18,14 +18,14 @@ use url::Url;
 /// This implementation is used by Windows, Android, and Reqwest backends
 /// to provide consistent cookie handling across all non-Apple platforms.
 #[derive(Clone, Debug)]
-pub struct CookieStoreImpl {
+pub struct CookieJar {
     /// RFC 6265 compliant cookie storage wrapped in Arc<Mutex> for thread safety
     store: Arc<Mutex<CookieStore>>,
     /// Cookie acceptance policy (stored separately as cookie_store doesn't support this)
     accept_policy: Arc<Mutex<CookieAcceptPolicy>>,
 }
 
-impl CookieStoreImpl {
+impl CookieJar {
     /// Create a new cookie storage
     pub fn new() -> Self {
         Self {
@@ -248,7 +248,7 @@ impl CookieStoreImpl {
     }
 }
 
-impl Default for CookieStoreImpl {
+impl Default for CookieJar {
     fn default() -> Self {
         Self::new()
     }

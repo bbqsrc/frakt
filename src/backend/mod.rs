@@ -1,6 +1,6 @@
 //! Backend abstraction for HTTP client implementations
 
-pub mod cookie_store_impl;
+pub mod cookie_store;
 pub mod types;
 
 #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
@@ -18,7 +18,7 @@ pub use android::{check_permission, list_permissions, start_netlog, stop_netlog,
 #[cfg(feature = "backend-reqwest")]
 pub mod reqwest;
 
-pub use cookie_store_impl::CookieStoreImpl;
+pub use cookie_store::CookieJar;
 
 use crate::{
     Error, Result,
@@ -276,7 +276,7 @@ pub enum CookieStorage {
 
     /// RFC 6265 compliant implementation using cookie_store
     /// Used by Windows, Android, and Reqwest backends
-    CookieStore(CookieStoreImpl),
+    CookieStore(CookieJar),
 }
 
 impl CookieStorage {
@@ -289,13 +289,13 @@ impl CookieStorage {
             }
             // All non-Apple backends use the unified CookieStore implementation
             #[cfg(all(feature = "backend-winhttp", windows))]
-            Backend::Windows(_) => CookieStorage::CookieStore(CookieStoreImpl::new()),
+            Backend::Windows(_) => CookieStorage::CookieStore(CookieJar::new()),
 
             #[cfg(all(feature = "backend-android", target_os = "android"))]
-            Backend::Android(_) => CookieStorage::CookieStore(CookieStoreImpl::new()),
+            Backend::Android(_) => CookieStorage::CookieStore(CookieJar::new()),
 
             #[cfg(feature = "backend-reqwest")]
-            Backend::Reqwest(_) => CookieStorage::CookieStore(CookieStoreImpl::new()),
+            Backend::Reqwest(_) => CookieStorage::CookieStore(CookieJar::new()),
         }
     }
 
