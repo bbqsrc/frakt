@@ -38,7 +38,7 @@ define_class!(
             error: Option<&NSError>,
         ) {
             let ivars = self.ivars();
-            let task_id = unsafe { task.taskIdentifier() } as usize;
+            let task_id = task.taskIdentifier() as usize;
 
             if let Ok(mut contexts) = ivars.task_contexts.lock() {
                 if let Some(shared_context) = contexts.remove(&task_id) {
@@ -63,7 +63,7 @@ define_class!(
             total_bytes_expected_to_send: i64,
         ) {
             let ivars = self.ivars();
-            let task_id = unsafe { task.taskIdentifier() } as usize;
+            let task_id = task.taskIdentifier() as usize;
 
             if let Ok(contexts) = ivars.task_contexts.lock() {
                 if let Some(shared_context) = contexts.get(&task_id) {
@@ -98,7 +98,7 @@ define_class!(
             >,
         ) {
             let ivars = self.ivars();
-            let task_id = unsafe { task.taskIdentifier() } as usize;
+            let task_id = task.taskIdentifier() as usize;
 
             if let Ok(contexts) = ivars.task_contexts.lock() {
                 if let Some(shared_context) = contexts.get(&task_id) {
@@ -121,7 +121,7 @@ define_class!(
             data: &objc2_foundation::NSData,
         ) {
             let ivars = self.ivars();
-            let task_id = unsafe { task.taskIdentifier() } as usize;
+            let task_id = task.taskIdentifier() as usize;
 
             if let Ok(contexts) = ivars.task_contexts.lock() {
                 if let Some(shared_context) = contexts.get(&task_id) {

@@ -65,14 +65,12 @@ pub enum Body {
     },
 
     /// Multipart form data
-    #[cfg(feature = "multipart")]
     Multipart {
         /// Multipart parts
         parts: Vec<MultipartPart>,
     },
 
     /// JSON data
-    #[cfg(feature = "json")]
     Json {
         /// JSON value
         value: serde_json::Value,
@@ -101,7 +99,6 @@ pub enum Body {
 ///     Some("application/octet-stream".to_string())
 /// );
 /// ```
-#[cfg(feature = "multipart")]
 #[derive(Debug, Clone)]
 pub struct MultipartPart {
     /// Field name
@@ -223,7 +220,6 @@ impl Body {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "json")]
     pub fn json(value: impl serde::Serialize) -> Result<Self, crate::Error> {
         Ok(Self::Json {
             value: serde_json::to_value(value).map_err(|e| crate::Error::Json(e.to_string()))?,
@@ -250,7 +246,6 @@ impl Body {
     /// ];
     /// let body = Body::multipart(parts);
     /// ```
-    #[cfg(feature = "multipart")]
     pub fn multipart(parts: Vec<MultipartPart>) -> Self {
         Self::Multipart { parts }
     }
@@ -325,14 +320,12 @@ impl From<Bytes> for Body {
     }
 }
 
-#[cfg(feature = "json")]
 impl From<serde_json::Value> for Body {
     fn from(value: serde_json::Value) -> Self {
         Self::Json { value }
     }
 }
 
-#[cfg(feature = "multipart")]
 impl MultipartPart {
     /// Create a text part
     pub fn text(name: impl Into<String>, content: impl Into<String>) -> Self {

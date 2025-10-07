@@ -66,29 +66,27 @@ impl Cookie {
 
     /// Create from NSHTTPCookie (Foundation specific)
     pub(crate) fn from_ns_cookie(ns_cookie: &NSHTTPCookie) -> Option<Self> {
-        unsafe {
-            let name = ns_cookie.name().to_string();
-            let value = ns_cookie.value().to_string();
-            let domain = ns_cookie.domain().to_string();
-            let path = ns_cookie.path().to_string();
-            let secure = ns_cookie.isSecure();
-            let http_only = ns_cookie.isHTTPOnly();
+        let name = ns_cookie.name().to_string();
+        let value = ns_cookie.value().to_string();
+        let domain = ns_cookie.domain().to_string();
+        let path = ns_cookie.path().to_string();
+        let secure = ns_cookie.isSecure();
+        let http_only = ns_cookie.isHTTPOnly();
 
-            // Get expiration date as string if available
-            let expires = ns_cookie
-                .expiresDate()
-                .map(|date| date.description().to_string());
+        // Get expiration date as string if available
+        let expires = ns_cookie
+            .expiresDate()
+            .map(|date| date.description().to_string());
 
-            Some(Self {
-                name,
-                value,
-                domain,
-                path,
-                secure,
-                http_only,
-                expires,
-            })
-        }
+        Some(Self {
+            name,
+            value,
+            domain,
+            path,
+            secure,
+            http_only,
+            expires,
+        })
     }
 }
 
@@ -96,23 +94,21 @@ impl FoundationCookieStorage {
     /// Create a new cookie storage with shared storage
     pub fn new() -> Self {
         Self {
-            storage: unsafe { NSHTTPCookieStorage::sharedHTTPCookieStorage() },
+            storage: NSHTTPCookieStorage::sharedHTTPCookieStorage(),
         }
     }
 
     /// Create a new cookie storage for a specific group container
     pub fn for_group_container(identifier: &str) -> Self {
-        let storage = unsafe {
-            NSHTTPCookieStorage::sharedCookieStorageForGroupContainerIdentifier(
-                &NSString::from_str(identifier),
-            )
-        };
+        let storage = NSHTTPCookieStorage::sharedCookieStorageForGroupContainerIdentifier(
+            &NSString::from_str(identifier),
+        );
         Self { storage }
     }
 
     /// Get all cookies
     pub fn all_cookies(&self) -> Vec<Cookie> {
-        let cookies = unsafe { self.storage.cookies() };
+        let cookies = self.storage.cookies();
         if let Some(cookies) = cookies {
             (0..cookies.len())
                 .map(|i| cookies.objectAtIndex(i))
@@ -125,10 +121,9 @@ impl FoundationCookieStorage {
 
     /// Get cookies for a specific URL
     pub fn cookies_for_url(&self, url: &str) -> Result<Vec<Cookie>> {
-        let nsurl =
-            unsafe { NSURL::URLWithString(&NSString::from_str(url)).ok_or(Error::InvalidUrl)? };
+        let nsurl = NSURL::URLWithString(&NSString::from_str(url)).ok_or(Error::InvalidUrl)?;
 
-        let cookies = unsafe { self.storage.cookiesForURL(&nsurl) };
+        let cookies = self.storage.cookiesForURL(&nsurl);
         if let Some(cookies) = cookies {
             Ok((0..cookies.len())
                 .map(|i| cookies.objectAtIndex(i))
@@ -142,18 +137,18 @@ impl FoundationCookieStorage {
     /// Add a cookie
     pub fn add_cookie(&self, cookie: Cookie) -> Result<()> {
         let ns_cookie = cookie.to_ns_cookie()?;
-        unsafe {
-            self.storage.setCookie(&ns_cookie);
-        }
+
+        self.storage.setCookie(&ns_cookie);
+
         Ok(())
     }
 
     /// Remove a cookie
     pub fn remove_cookie(&self, cookie: Cookie) -> Result<()> {
         let ns_cookie = cookie.to_ns_cookie()?;
-        unsafe {
-            self.storage.deleteCookie(&ns_cookie);
-        }
+
+        self.storage.deleteCookie(&ns_cookie);
+
         Ok(())
     }
 
@@ -176,8 +171,7 @@ impl FoundationCookieStorage {
                 NSHTTPCookieAcceptPolicy::OnlyFromMainDocumentDomain
             }
         };
-        unsafe {
-            self.storage.setCookieAcceptPolicy(ns_policy);
-        }
+
+        self.storage.setCookieAcceptPolicy(ns_policy);
     }
 }

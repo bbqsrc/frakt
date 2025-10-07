@@ -79,7 +79,6 @@ fn test_body_form_creation() {
     }
 }
 
-#[cfg(feature = "json")]
 #[test]
 fn test_body_json_creation() {
     // Test JSON body creation
@@ -103,7 +102,6 @@ fn test_body_json_creation() {
     }
 }
 
-#[cfg(feature = "multipart")]
 #[test]
 fn test_multipart_part_creation() {
     // Test multipart form part creation

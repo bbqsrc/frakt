@@ -147,7 +147,6 @@ pub enum Error {
     /// This error occurs when JSON operations fail, such as when using
     /// `RequestBuilder::json()` or `Response::json()`. This variant is only
     /// available when the "json" feature is enabled.
-    #[cfg(feature = "json")]
     #[error("JSON error: {0}")]
     Json(String),
 

@@ -221,7 +221,6 @@ impl ReqwestBackend {
         // Add body
         if let Some(body) = request.body {
             match &body {
-                #[cfg(feature = "multipart")]
                 crate::body::Body::Multipart { parts } => {
                     let mut form = reqwest::multipart::Form::new();
                     for part in parts {
@@ -342,13 +341,11 @@ impl ReqwestBackend {
                     .join("&");
                 Ok(reqwest::Body::from(form_data))
             }
-            #[cfg(feature = "json")]
             crate::body::Body::Json { value } => {
                 let json_bytes =
                     serde_json::to_vec(&value).map_err(|e| Error::Json(e.to_string()))?;
                 Ok(reqwest::Body::from(json_bytes))
             }
-            #[cfg(feature = "multipart")]
             crate::body::Body::Multipart { .. } => {
                 // Multipart is handled separately in the execute function
                 Ok(reqwest::Body::from(""))
@@ -368,13 +365,11 @@ impl ReqwestBackend {
                     .join("&");
                 Ok(Bytes::from(form_data))
             }
-            #[cfg(feature = "json")]
             crate::body::Body::Json { value } => {
                 let json_bytes =
                     serde_json::to_vec(&value).map_err(|e| Error::Json(e.to_string()))?;
                 Ok(Bytes::from(json_bytes))
             }
-            #[cfg(feature = "multipart")]
             crate::body::Body::Multipart { .. } => {
                 // Multipart is handled separately in the execute function
                 Ok(Bytes::from(""))

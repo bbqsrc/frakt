@@ -30,22 +30,17 @@ pub struct FoundationWebSocket {
 impl FoundationWebSocket {
     /// Create a new Foundation WebSocket connection
     pub async fn new(session: Retained<NSURLSession>, url: &str) -> Result<Self> {
-        let nsurl = unsafe {
-            NSURL::URLWithString(&NSString::from_str(url)).ok_or_else(|| Error::InvalidUrl)?
-        };
+        let nsurl =
+            NSURL::URLWithString(&NSString::from_str(url)).ok_or_else(|| Error::InvalidUrl)?;
 
         let (delegate, connection_receiver) =
             crate::backend::foundation::delegate::websocket::WebSocketDelegate::new_with_channel();
 
-        let task = unsafe { session.webSocketTaskWithURL(&nsurl) };
+        let task = session.webSocketTaskWithURL(&nsurl);
 
-        unsafe {
-            task.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*delegate)));
-        }
+        task.setDelegate(Some(objc2::runtime::ProtocolObject::from_ref(&*delegate)));
 
-        unsafe {
-            task.resume();
-        }
+        task.resume();
 
         // Wait for connection to be established with timeout
         let connection_result =
@@ -66,9 +61,9 @@ impl FoundationWebSocket {
             }
             Err(_) => {
                 tracing::debug!("WebSocket::new_foundation - Connection timed out");
-                unsafe {
-                    task.cancel();
-                }
+
+                task.cancel();
+
                 Err(Error::Timeout)
             }
         }
@@ -85,21 +80,19 @@ impl FoundationWebSocket {
         let ns_message = match message {
             Message::Text(text) => {
                 let ns_string = NSString::from_str(&text);
-                unsafe {
-                    NSURLSessionWebSocketMessage::initWithString(
-                        NSURLSessionWebSocketMessage::alloc(),
-                        &ns_string,
-                    )
-                }
+
+                NSURLSessionWebSocketMessage::initWithString(
+                    NSURLSessionWebSocketMessage::alloc(),
+                    &ns_string,
+                )
             }
             Message::Binary(data) => {
                 let ns_data = NSData::from_vec(data);
-                unsafe {
-                    NSURLSessionWebSocketMessage::initWithData(
-                        NSURLSessionWebSocketMessage::alloc(),
-                        &ns_data,
-                    )
-                }
+
+                NSURLSessionWebSocketMessage::initWithData(
+                    NSURLSessionWebSocketMessage::alloc(),
+                    &ns_data,
+                )
             }
         };
 
@@ -198,13 +191,11 @@ impl FoundationWebSocket {
         let ns_code = NSURLSessionWebSocketCloseCode(code as isize);
         let ns_reason = reason.map(|r| NSData::from_vec(r.as_bytes().to_vec()));
 
-        unsafe {
-            if let Some(reason_data) = ns_reason {
-                self.task
-                    .cancelWithCloseCode_reason(ns_code, Some(&reason_data));
-            } else {
-                self.task.cancelWithCloseCode_reason(ns_code, None);
-            }
+        if let Some(reason_data) = ns_reason {
+            self.task
+                .cancelWithCloseCode_reason(ns_code, Some(&reason_data));
+        } else {
+            self.task.cancelWithCloseCode_reason(ns_code, None);
         }
 
         self.closed = true;
@@ -213,31 +204,25 @@ impl FoundationWebSocket {
 
     /// Get the current close code if the connection has been closed
     pub fn close_code(&self) -> Option<isize> {
-        unsafe {
-            let code = self.task.closeCode();
-            if code.0 == 0 { None } else { Some(code.0) }
-        }
+        let code = self.task.closeCode();
+        if code.0 == 0 { None } else { Some(code.0) }
     }
 
     /// Get the close reason if the connection has been closed
     pub fn close_reason(&self) -> Option<String> {
-        unsafe {
-            self.task
-                .closeReason()
-                .map(|data| String::from_utf8_lossy(&data.to_vec()).to_string())
-        }
+        self.task
+            .closeReason()
+            .map(|data| String::from_utf8_lossy(&data.to_vec()).to_string())
     }
 
     /// Set the maximum message size for this WebSocket
     pub fn set_maximum_message_size(&self, size: isize) {
-        unsafe {
-            self.task.setMaximumMessageSize(size);
-        }
+        self.task.setMaximumMessageSize(size);
     }
 
     /// Get the current maximum message size
     pub fn maximum_message_size(&self) -> isize {
-        unsafe { self.task.maximumMessageSize() }
+        self.task.maximumMessageSize()
     }
 }
 

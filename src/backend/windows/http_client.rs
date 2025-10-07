@@ -454,14 +454,12 @@ pub async fn execute_winhttp_request(
                     Some("application/x-www-form-urlencoded"),
                 )
             }
-            #[cfg(feature = "json")]
             crate::body::Body::Json { value } => {
                 let json_bytes = serde_json::to_string(&value)
                     .map_err(|e| Error::Internal(format!("Failed to serialize JSON: {}", e)))?
                     .into_bytes();
                 (json_bytes, Some("application/json"))
             }
-            #[cfg(feature = "multipart")]
             crate::body::Body::Multipart { .. } => {
                 return Err(Error::Internal(
                     "Multipart not yet supported with WinHTTP".to_string(),

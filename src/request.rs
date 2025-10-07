@@ -87,7 +87,6 @@ impl RequestBuilder {
     }
 
     /// Set a JSON body from a serializable value
-    #[cfg(feature = "json")]
     pub fn json(mut self, value: impl serde::Serialize) -> Result<Self> {
         self.body = Some(Body::json(value)?);
         Ok(self)

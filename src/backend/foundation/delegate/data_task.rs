@@ -45,7 +45,7 @@ define_class!(
             error: Option<&NSError>,
         ) {
             let ivars = self.ivars();
-            let task_id = unsafe { task.taskIdentifier() } as usize;
+            let task_id = task.taskIdentifier() as usize;
 
             if let Ok(mut contexts) = ivars.task_contexts.lock() {
                 if let Some(shared_context) = contexts.remove(&task_id) {
@@ -105,7 +105,7 @@ define_class!(
             total_bytes_expected_to_send: i64,
         ) {
             let ivars = self.ivars();
-            let task_id = unsafe { task.taskIdentifier() } as usize;
+            let task_id = task.taskIdentifier() as usize;
 
             if let Ok(contexts) = ivars.task_contexts.lock() {
                 if let Some(shared_context) = contexts.get(&task_id) {
@@ -138,7 +138,7 @@ define_class!(
             completion_handler: &DynBlock<dyn Fn(NSURLSessionResponseDisposition)>,
         ) {
             let ivars = self.ivars();
-            let task_id = unsafe { data_task.taskIdentifier() } as usize;
+            let task_id = data_task.taskIdentifier() as usize;
 
             if let Ok(contexts) = ivars.task_contexts.lock() {
                 if let Some(shared_context) = contexts.get(&task_id) {
@@ -148,7 +148,7 @@ define_class!(
                         .store(Some(Arc::new(response.copy())));
 
                     // Set expected content length for progress tracking
-                    let expected_length = unsafe { response.expectedContentLength() };
+                    let expected_length = response.expectedContentLength();
                     if expected_length > 0 {
                         shared_context.set_total_bytes_expected(expected_length as u64);
                     }
@@ -167,7 +167,7 @@ define_class!(
             data: &NSData,
         ) {
             let ivars = self.ivars();
-            let task_id = unsafe { data_task.taskIdentifier() } as usize;
+            let task_id = data_task.taskIdentifier() as usize;
 
             if let Ok(contexts) = ivars.task_contexts.lock() {
                 if let Some(shared_context) = contexts.get(&task_id) {

@@ -236,7 +236,6 @@ pub use response::{Response, ResponseStream};
 
 // Re-export body types
 pub use body::Body;
-#[cfg(feature = "multipart")]
 pub use body::MultipartPart;
 pub use cookies::{Cookie, CookieAcceptPolicy, CookieJar};
 pub use websocket::{CloseCode, Message, WebSocket, WebSocketBuilder};

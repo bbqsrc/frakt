@@ -1,7 +1,7 @@
 //! Cookie management using backend abstraction
 
 use crate::{
-    BackendType, Result,
+    Result,
     backend::{Backend, CookieStorage},
 };
 
@@ -122,12 +122,12 @@ impl CookieJar {
     /// use frakt::CookieJar;
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # #[cfg(target_vendor = "apple")]
+    /// # #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     /// let jar = CookieJar::for_group_container("group.com.example.app")?;
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(target_vendor = "apple")]
+    #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     pub fn for_group_container(identifier: &str) -> Result<Self> {
         Ok(Self {
             storage: CookieStorage::for_group_container(identifier)?,

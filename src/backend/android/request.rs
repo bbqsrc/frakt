@@ -14,12 +14,10 @@ use std::sync::Mutex;
 use tokio::sync::mpsc;
 
 // Global storage for upload progress callbacks
-static UPLOAD_PROGRESS_CALLBACKS: once_cell::sync::Lazy<
-    Mutex<HashMap<i64, ProgressCallback>>,
-> = once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
+static UPLOAD_PROGRESS_CALLBACKS: once_cell::sync::Lazy<Mutex<HashMap<i64, ProgressCallback>>> =
+    once_cell::sync::Lazy::new(|| Mutex::new(HashMap::new()));
 
-static NEXT_UPLOAD_PROGRESS_ID: std::sync::atomic::AtomicI64 =
-    std::sync::atomic::AtomicI64::new(1);
+static NEXT_UPLOAD_PROGRESS_ID: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(1);
 
 fn register_upload_progress_callback(callback: ProgressCallback) -> i64 {
     let id = NEXT_UPLOAD_PROGRESS_ID.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -50,7 +48,8 @@ pub async fn execute_request(
 
     // Build and start request - each function creates its own env
     println!("🚀 Building and starting request to: {}", url);
-    let (url_request_global, upload_progress_id) = build_and_start_request(jvm, cronet_engine, request, handler_id)?;
+    let (url_request_global, upload_progress_id) =
+        build_and_start_request(jvm, cronet_engine, request, handler_id)?;
     println!("🚀 Request started, waiting for response...");
 
     // Wait for response to start and collect all events until completion
@@ -238,11 +237,9 @@ fn create_upload_data_provider(
                 .join("&");
             encoded.into_bytes()
         }
-        #[cfg(feature = "json")]
         crate::body::Body::Json { value } => {
             serde_json::to_vec(&value).map_err(|e| Error::Json(e.to_string()))?
         }
-        #[cfg(feature = "multipart")]
         crate::body::Body::Multipart { .. } => {
             return Err(Error::Internal(
                 "Multipart data not yet implemented for Android backend".to_string(),
@@ -296,9 +293,7 @@ fn create_upload_data_provider(
             )
             .map_err(|e| Error::Internal(format!("Failed to create UploadDataProvider: {}", e)))?
             .l()
-            .map_err(|e| {
-                Error::Internal(format!("Failed to convert UploadDataProvider: {}", e))
-            })?;
+            .map_err(|e| Error::Internal(format!("Failed to convert UploadDataProvider: {}", e)))?;
 
         (provider, None)
     };
@@ -370,9 +365,7 @@ fn build_and_start_request(
                 crate::body::Body::Form { .. } => {
                     Some("application/x-www-form-urlencoded".to_string())
                 }
-                #[cfg(feature = "json")]
                 crate::body::Body::Json { .. } => Some("application/json".to_string()),
-                #[cfg(feature = "multipart")]
                 crate::body::Body::Multipart { .. } => {
                     // Multipart needs a boundary, but since it's not implemented yet, use a placeholder
                     Some("multipart/form-data".to_string())
@@ -409,7 +402,8 @@ fn build_and_start_request(
         // Handle request body if present
         let upload_progress_id = if let Some(body) = request.body {
             let progress_callback = request.progress_callback.clone();
-            let (upload_global, progress_id) = create_upload_data_provider(jvm, body, progress_callback)?;
+            let (upload_global, progress_id) =
+                create_upload_data_provider(jvm, body, progress_callback)?;
             builder
                 .set_upload_data_provider(upload_global.as_obj())
                 .map_err(|e| {
@@ -435,7 +429,8 @@ fn build_and_start_request(
     println!("🚀 request.start() returned successfully");
 
     // Return global reference and upload progress ID
-    let global_ref = env.new_global_ref(&url_request)
+    let global_ref = env
+        .new_global_ref(&url_request)
         .map_err(|e| Error::Internal(format!("Failed to create global ref for request: {}", e)))?;
 
     Ok((global_ref, upload_progress_id))
@@ -465,8 +460,8 @@ fn register_upload_progress_methods(
     env: &mut jni::JNIEnv,
     class: &jni::objects::JClass,
 ) -> Result<()> {
-    use jni::objects::JClass as JClassType;
     use jni::NativeMethod;
+    use jni::objects::JClass as JClassType;
 
     let jclass = unsafe { JClassType::from_raw(class.as_raw()) };
     let native_methods = [NativeMethod {
@@ -476,6 +471,11 @@ fn register_upload_progress_methods(
             as *mut std::ffi::c_void,
     }];
     env.register_native_methods(jclass, &native_methods)
-        .map_err(|e| Error::Internal(format!("Failed to register upload progress native methods: {}", e)))?;
+        .map_err(|e| {
+            Error::Internal(format!(
+                "Failed to register upload progress native methods: {}",
+                e
+            ))
+        })?;
     Ok(())
 }

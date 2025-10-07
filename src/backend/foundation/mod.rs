@@ -76,13 +76,11 @@ impl FoundationBackend {
         let delegate = delegate::DataTaskDelegate::new();
 
         let session_config =
-            unsafe { objc2_foundation::NSURLSessionConfiguration::defaultSessionConfiguration() };
+            objc2_foundation::NSURLSessionConfiguration::defaultSessionConfiguration();
 
         // Apply timeout configuration
         if let Some(timeout) = config.timeout {
-            unsafe {
-                session_config.setTimeoutIntervalForRequest(timeout.as_secs_f64());
-            }
+            session_config.setTimeoutIntervalForRequest(timeout.as_secs_f64());
         }
 
         // Other configuration options like default headers are stored in the backend
@@ -112,13 +110,11 @@ impl FoundationBackend {
     /// Execute an HTTP request using NSURLSession
     pub async fn execute(&self, request: BackendRequest) -> Result<BackendResponse> {
         // Create NSURLRequest and validate URL
-        let nsurl = unsafe {
-            NSURL::URLWithString(&NSString::from_str(&request.url.as_str()))
-                .ok_or(Error::InvalidUrl)?
-        };
+        let nsurl = NSURL::URLWithString(&NSString::from_str(&request.url.as_str()))
+            .ok_or(Error::InvalidUrl)?;
 
         // Validate URL scheme using Foundation APIs
-        let scheme = unsafe { nsurl.scheme() };
+        let scheme = nsurl.scheme();
         if let Some(scheme_str) = scheme {
             let scheme_string = scheme_str.to_string();
             match scheme_string.as_str() {
@@ -131,7 +127,7 @@ impl FoundationBackend {
             return Err(Error::InvalidUrl);
         }
 
-        let nsrequest = unsafe {
+        let nsrequest = {
             let req = NSMutableURLRequest::requestWithURL(&nsurl);
             req.setHTTPMethod(&NSString::from_str(request.method.as_str()));
 
@@ -181,7 +177,6 @@ impl FoundationBackend {
                         let nsdata = objc2_foundation::NSData::from_vec(encoded.into_bytes());
                         req.setHTTPBody(Some(&nsdata));
                     }
-                    #[cfg(feature = "json")]
                     crate::body::Body::Json { value } => {
                         req.setValue_forHTTPHeaderField(
                             Some(&NSString::from_str("application/json")),
@@ -192,7 +187,6 @@ impl FoundationBackend {
                         let nsdata = objc2_foundation::NSData::from_vec(json_bytes);
                         req.setHTTPBody(Some(&nsdata));
                     }
-                    #[cfg(feature = "multipart")]
                     crate::body::Body::Multipart { parts } => {
                         let boundary = generate_boundary();
                         let content_type = format!("multipart/form-data; boundary={}", boundary);
@@ -222,19 +216,17 @@ impl FoundationBackend {
         };
 
         // Create data task
-        let data_task = unsafe { self.session.dataTaskWithRequest(&nsrequest) };
+        let data_task = self.session.dataTaskWithRequest(&nsrequest);
 
         // Register the task context with the delegate using the task identifier
-        let task_id = unsafe { data_task.taskIdentifier() } as usize;
+        let task_id = data_task.taskIdentifier() as usize;
         self.delegate.register_task(task_id, task_context.clone());
 
         // Create channel for response body
         let (tx, rx) = mpsc::channel(32);
 
         // Start task
-        unsafe {
-            data_task.resume();
-        }
+        data_task.resume();
 
         // Wait for response headers
         while !task_context.is_completed() && task_context.response.load_full().is_none() {
@@ -252,7 +244,7 @@ impl FoundationBackend {
             .load_full()
             .ok_or_else(|| Error::Internal("No response received".to_string()))?;
 
-        let status = unsafe {
+        let status = {
             // Try to cast to NSHTTPURLResponse to get status code
             let http_response: Option<&NSHTTPURLResponse> = response.as_ref().downcast_ref();
             if let Some(http_response) = http_response {
@@ -378,7 +370,7 @@ impl FoundationBackend {
         });
 
         // Create background session configuration
-        let session_config = unsafe {
+        let session_config = {
             NSURLSessionConfiguration::backgroundSessionConfigurationWithIdentifier(
                 &NSString::from_str(&session_id),
             )
@@ -395,11 +387,10 @@ impl FoundationBackend {
         };
 
         // Create download task with headers
-        let nsurl = unsafe {
-            NSURL::URLWithString(&NSString::from_str(url.as_str())).ok_or(Error::InvalidUrl)?
-        };
+        let nsurl =
+            { NSURL::URLWithString(&NSString::from_str(url.as_str())).ok_or(Error::InvalidUrl)? };
 
-        let nsrequest = unsafe {
+        let nsrequest = {
             let req = NSMutableURLRequest::requestWithURL(&nsurl);
 
             // Set headers
@@ -415,8 +406,8 @@ impl FoundationBackend {
             req
         };
 
-        let download_task = unsafe { session.downloadTaskWithRequest(&nsrequest) };
-        let task_id = unsafe { download_task.taskIdentifier() } as usize;
+        let download_task = session.downloadTaskWithRequest(&nsrequest);
+        let task_id = download_task.taskIdentifier() as usize;
 
         // Create task context
         let mut task_context = if let Some(callback) = progress_callback {
@@ -435,9 +426,7 @@ impl FoundationBackend {
         delegate.register_task(task_id, task_context.clone());
 
         // Start download
-        unsafe {
-            download_task.resume();
-        }
+        download_task.resume();
 
         // Wait for completion
         while !task_context.is_completed() {
@@ -484,7 +473,6 @@ fn encode_form_fields(
         .join("&")
 }
 
-#[cfg(feature = "multipart")]
 fn generate_boundary() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let timestamp = SystemTime::now()
@@ -494,7 +482,6 @@ fn generate_boundary() -> String {
     format!("----formdata-frakt-{}", timestamp)
 }
 
-#[cfg(feature = "multipart")]
 fn encode_multipart_data(boundary: &str, parts: &[crate::body::MultipartPart]) -> Result<Vec<u8>> {
     let mut data = Vec::new();
 

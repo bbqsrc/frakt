@@ -148,14 +148,16 @@ pub enum CloseCode {
 /// # Ok(())
 /// # }
 /// ```
+#[non_exhaustive]
 pub enum WebSocket {
     /// Foundation backend using NSURLSessionWebSocketTask
-    #[cfg(target_vendor = "apple")]
+    #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     Foundation(crate::backend::foundation::FoundationWebSocket),
     /// Windows backend using MessageWebSocket
-    #[cfg(windows)]
+    #[cfg(all(feature = "backend-winhttp", windows))]
     Windows(crate::backend::windows::WindowsWebSocket),
     /// Reqwest backend using tokio-tungstenite
+    #[cfg(feature = "backend-reqwest")]
     Reqwest(crate::backend::reqwest::ReqwestWebSocket),
 }
 
@@ -193,11 +195,14 @@ impl WebSocket {
     /// ```
     pub async fn send(&mut self, message: impl Into<Message>) -> Result<()> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             WebSocket::Foundation(ws) => ws.send(message.into()).await,
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             WebSocket::Windows(ws) => ws.send(message.into()).await,
+            #[cfg(feature = "backend-reqwest")]
             WebSocket::Reqwest(ws) => ws.send(message.into()).await,
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 
@@ -234,11 +239,14 @@ impl WebSocket {
     /// ```
     pub async fn receive(&mut self) -> Result<Message> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             WebSocket::Foundation(ws) => ws.receive().await,
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             WebSocket::Windows(ws) => ws.receive().await,
+            #[cfg(feature = "backend-reqwest")]
             WebSocket::Reqwest(ws) => ws.receive().await,
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 
@@ -272,11 +280,14 @@ impl WebSocket {
     /// ```
     pub async fn close(&mut self, code: CloseCode, reason: Option<&str>) -> Result<()> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             WebSocket::Foundation(ws) => ws.close(code, reason).await,
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             WebSocket::Windows(ws) => ws.close(code, reason).await,
+            #[cfg(feature = "backend-reqwest")]
             WebSocket::Reqwest(ws) => ws.close(code, reason).await,
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 
@@ -306,11 +317,14 @@ impl WebSocket {
     /// ```
     pub fn close_code(&self) -> Option<isize> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             WebSocket::Foundation(ws) => ws.close_code(),
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             WebSocket::Windows(ws) => ws.close_code(),
+            #[cfg(feature = "backend-reqwest")]
             WebSocket::Reqwest(ws) => ws.close_code(),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 
@@ -337,11 +351,14 @@ impl WebSocket {
     /// ```
     pub fn close_reason(&self) -> Option<String> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             WebSocket::Foundation(ws) => ws.close_reason(),
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             WebSocket::Windows(ws) => ws.close_reason(),
+            #[cfg(feature = "backend-reqwest")]
             WebSocket::Reqwest(ws) => ws.close_reason(),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 
@@ -371,11 +388,14 @@ impl WebSocket {
     /// ```
     pub fn set_maximum_message_size(&mut self, size: isize) {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             WebSocket::Foundation(ws) => ws.set_maximum_message_size(size),
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             WebSocket::Windows(ws) => ws.set_maximum_message_size(size),
+            #[cfg(feature = "backend-reqwest")]
             WebSocket::Reqwest(ws) => ws.set_maximum_message_size(size),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 
@@ -401,11 +421,14 @@ impl WebSocket {
     /// ```
     pub fn maximum_message_size(&self) -> isize {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             WebSocket::Foundation(ws) => ws.maximum_message_size(),
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             WebSocket::Windows(ws) => ws.maximum_message_size(),
+            #[cfg(feature = "backend-reqwest")]
             WebSocket::Reqwest(ws) => ws.maximum_message_size(),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 }
@@ -432,14 +455,16 @@ impl WebSocket {
 /// # Ok(())
 /// # }
 /// ```
+#[non_exhaustive]
 pub enum WebSocketBuilder {
     /// Foundation backend using NSURLSession
-    #[cfg(target_vendor = "apple")]
+    #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     Foundation(crate::backend::foundation::FoundationWebSocketBuilder),
     /// Windows backend using MessageWebSocket
-    #[cfg(windows)]
+    #[cfg(all(feature = "backend-winhttp", windows))]
     Windows(crate::backend::windows::WindowsWebSocketBuilder),
     /// Reqwest backend using tokio-tungstenite
+    #[cfg(feature = "backend-reqwest")]
     Reqwest(crate::backend::reqwest::ReqwestWebSocketBuilder),
 }
 
@@ -471,17 +496,20 @@ impl WebSocketBuilder {
     /// ```
     pub fn maximum_message_size(self, size: isize) -> Self {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             WebSocketBuilder::Foundation(builder) => {
                 WebSocketBuilder::Foundation(builder.maximum_message_size(size))
             }
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             WebSocketBuilder::Windows(builder) => {
                 WebSocketBuilder::Windows(builder.maximum_message_size(size))
             }
+            #[cfg(feature = "backend-reqwest")]
             WebSocketBuilder::Reqwest(builder) => {
                 WebSocketBuilder::Reqwest(builder.maximum_message_size(size))
             }
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 
@@ -514,20 +542,23 @@ impl WebSocketBuilder {
     /// ```
     pub async fn connect(self, url: &str) -> Result<WebSocket> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             WebSocketBuilder::Foundation(builder) => {
                 let ws = builder.connect(url).await?;
                 Ok(WebSocket::Foundation(ws))
             }
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             WebSocketBuilder::Windows(builder) => {
                 let ws = builder.connect(url).await?;
                 Ok(WebSocket::Windows(ws))
             }
+            #[cfg(feature = "backend-reqwest")]
             WebSocketBuilder::Reqwest(builder) => {
                 let ws = builder.connect(url).await?;
                 Ok(WebSocket::Reqwest(ws))
             }
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 }

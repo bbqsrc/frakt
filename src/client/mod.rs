@@ -457,7 +457,7 @@ impl Client {
     /// ```
     pub fn websocket(&self) -> crate::websocket::WebSocketBuilder {
         match &self.backend {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             Backend::Foundation(foundation_backend) => {
                 // Use Foundation backend for WebSocket
                 crate::websocket::WebSocketBuilder::Foundation(
@@ -466,11 +466,11 @@ impl Client {
                     ),
                 )
             }
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             Backend::Windows(_) => crate::websocket::WebSocketBuilder::Windows(
                 crate::backend::windows::WindowsWebSocketBuilder::new(),
             ),
-            #[cfg(target_os = "android")]
+            #[cfg(all(feature = "backend-android", target_os = "android"))]
             Backend::Android(_) => {
                 // Android backend uses reqwest for WebSocket (tokio-tungstenite)
                 // Cronet doesn't have built-in WebSocket support
@@ -478,12 +478,15 @@ impl Client {
                     crate::backend::reqwest::ReqwestWebSocketBuilder::new(),
                 )
             }
+            #[cfg(feature = "backend-reqwest")]
             Backend::Reqwest(_) => {
                 // Use Reqwest backend for WebSocket with tokio-tungstenite
                 crate::websocket::WebSocketBuilder::Reqwest(
                     crate::backend::reqwest::ReqwestWebSocketBuilder::new(),
                 )
             }
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 
@@ -569,18 +572,55 @@ pub struct ClientBuilder {
 /// - `Foundation`: Use Foundation backend (Apple platforms only)
 /// - `Reqwest`: Use Reqwest backend (all platforms)
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub enum BackendType {
     /// Foundation backend (Apple only)
-    #[cfg(target_vendor = "apple")]
+    #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     Foundation,
     /// Reqwest backend (all platforms)
+    #[cfg(feature = "backend-reqwest")]
     Reqwest,
     /// Windows backend (Windows only)
-    #[cfg(windows)]
+    #[cfg(all(feature = "backend-winhttp", windows))]
     Windows,
     /// Android backend (Android only)
-    #[cfg(target_os = "android")]
+    #[cfg(all(feature = "backend-android", target_os = "android"))]
     Android,
+}
+
+impl BackendType {
+    /// Get the default backend type for the current platform
+    #[allow(unreachable_code)]
+    pub fn fallback() -> Self {
+        // Apple platforms use Foundation by default
+        #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
+        {
+            return BackendType::Foundation;
+        }
+
+        // Windows uses winhttp if available
+        #[cfg(all(feature = "backend-winhttp", windows))]
+        {
+            return BackendType::Windows;
+        }
+
+        // Android uses Android backend if available
+        #[cfg(all(feature = "backend-android", target_os = "android"))]
+        {
+            return BackendType::Android;
+        }
+
+        // Fallback to Reqwest on other platforms
+        #[cfg(feature = "backend-reqwest")]
+        {
+            return BackendType::Reqwest;
+        }
+
+        #[allow(unreachable_code)]
+        {
+            unreachable!("No backend available")
+        }
+    }
 }
 
 impl ClientBuilder {
@@ -702,25 +742,19 @@ impl ClientBuilder {
     }
 
     /// Build the client with the configured settings
-    pub fn build(self) -> crate::Result<Client> {
+    pub fn build(mut self) -> crate::Result<Client> {
         let backend = match self.backend_type {
+            #[cfg(feature = "backend-reqwest")]
             Some(BackendType::Reqwest) => Backend::reqwest_with_config(self.config)?,
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             Some(BackendType::Foundation) => Backend::foundation_with_config(self.config)?,
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             Some(BackendType::Windows) => Backend::windows_with_config(self.config)?,
-            #[cfg(target_os = "android")]
+            #[cfg(all(feature = "backend-android", target_os = "android"))]
             Some(BackendType::Android) => Backend::android_with_config(self.config)?,
             None => {
-                // Auto-select with config
-                #[cfg(target_vendor = "apple")]
-                {
-                    Backend::foundation_with_config(self.config)?
-                }
-                #[cfg(not(target_vendor = "apple"))]
-                {
-                    Backend::reqwest_with_config(self.config)?
-                }
+                self.backend_type = Some(BackendType::fallback());
+                return self.build();
             }
         };
 

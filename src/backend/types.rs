@@ -47,7 +47,7 @@ pub struct BackendDownloadHandle {
 /// Platform-specific download handle data
 pub enum PlatformHandle {
     /// Foundation (NSURLSession) download task on Apple platforms
-    #[cfg(target_vendor = "apple")]
+    #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     Foundation {
         /// NSURLSession download task
         task: objc2::rc::Retained<objc2_foundation::NSURLSessionDownloadTask>,

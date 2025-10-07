@@ -3,24 +3,25 @@
 pub mod cookie_store_impl;
 pub mod types;
 
-#[cfg(target_vendor = "apple")]
+#[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
 pub mod foundation;
 
-#[cfg(windows)]
+#[cfg(all(feature = "backend-winhttp", windows))]
 pub mod windows;
 
-#[cfg(target_os = "android")]
+#[cfg(all(feature = "backend-android", target_os = "android"))]
 pub mod android;
 
-#[cfg(target_os = "android")]
+#[cfg(all(feature = "backend-android", target_os = "android"))]
 pub use android::{check_permission, list_permissions, start_netlog, stop_netlog, test_dns};
 
+#[cfg(feature = "backend-reqwest")]
 pub mod reqwest;
 
 pub use cookie_store_impl::CookieStoreImpl;
 
 use crate::{
-    BackendType, Result,
+    Error, Result,
     cookies::{Cookie, CookieAcceptPolicy},
 };
 use std::time::Duration;
@@ -52,64 +53,72 @@ pub struct BackendConfig {
 
 /// HTTP client backend implementations
 #[derive(Clone)]
+#[non_exhaustive]
 pub enum Backend {
     /// Native Apple implementation using NSURLSession
-    #[cfg(target_vendor = "apple")]
+    #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     Foundation(foundation::FoundationBackend),
 
     /// Native Windows implementation using WinRT HTTP
-    #[cfg(windows)]
+    #[cfg(all(feature = "backend-winhttp", windows))]
     Windows(windows::WindowsBackend),
 
     /// Native Android implementation using Cronet
-    #[cfg(target_os = "android")]
+    #[cfg(all(feature = "backend-android", target_os = "android"))]
     Android(android::AndroidBackend),
 
     /// Cross-platform implementation using reqwest
+    #[cfg(feature = "backend-reqwest")]
     Reqwest(reqwest::ReqwestBackend),
 }
 
 impl Backend {
     /// Auto-select best backend for platform
     pub fn default_for_platform() -> Result<Self> {
-        #[cfg(target_vendor = "apple")]
+        #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
         {
             // Default to Foundation on Apple platforms
-            Ok(Backend::Foundation(foundation::FoundationBackend::new()?))
+            return Ok(Backend::Foundation(foundation::FoundationBackend::new()?));
         }
 
         #[cfg(all(windows, not(target_vendor = "apple")))]
         {
             // Default to Windows on Windows platforms
-            Ok(Backend::Windows(windows::WindowsBackend::new()?))
+            return Ok(Backend::Windows(windows::WindowsBackend::new()?));
         }
 
         #[cfg(all(target_os = "android", not(any(target_vendor = "apple", windows))))]
         {
             // Default to Android backend on Android
-            Ok(Backend::Android(android::AndroidBackend::new()?))
+            return Ok(Backend::Android(android::AndroidBackend::new()?));
         }
 
         #[cfg(not(any(target_vendor = "apple", windows, target_os = "android")))]
         {
             // Use reqwest everywhere else
-            Ok(Backend::Reqwest(reqwest::ReqwestBackend::new()?))
+            return Ok(Backend::Reqwest(reqwest::ReqwestBackend::new()?));
         }
+
+        #[allow(unreachable_code)]
+        Err(Error::Internal(
+            "No suitable backend available for this platform".to_string(),
+        ))
     }
 
     /// Explicitly use reqwest backend (works on all platforms)
+    #[cfg(feature = "backend-reqwest")]
     pub fn reqwest() -> Result<Self> {
         Ok(Backend::Reqwest(reqwest::ReqwestBackend::new()?))
     }
 
     /// Use Foundation backend (Apple only)
-    #[cfg(target_vendor = "apple")]
+    #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     pub fn foundation() -> Result<Self> {
         Ok(Backend::Foundation(foundation::FoundationBackend::new()?))
     }
 
     /// Use Foundation backend with configuration (Apple only)
-    #[cfg(target_vendor = "apple")]
+    #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     pub fn foundation_with_config(config: BackendConfig) -> Result<Self> {
         Ok(Backend::Foundation(
             foundation::FoundationBackend::with_config(config)?,
@@ -117,13 +126,13 @@ impl Backend {
     }
 
     /// Use Windows backend (Windows only)
-    #[cfg(windows)]
+    #[cfg(all(feature = "backend-winhttp", windows))]
     pub fn windows() -> Result<Self> {
         Ok(Backend::Windows(windows::WindowsBackend::new()?))
     }
 
     /// Use Windows backend with configuration (Windows only)
-    #[cfg(windows)]
+    #[cfg(all(feature = "backend-winhttp", windows))]
     pub fn windows_with_config(config: BackendConfig) -> Result<Self> {
         Ok(Backend::Windows(windows::WindowsBackend::with_config(
             config,
@@ -131,13 +140,13 @@ impl Backend {
     }
 
     /// Use Android backend (Android only)
-    #[cfg(target_os = "android")]
+    #[cfg(all(feature = "backend-android", target_os = "android"))]
     pub fn android() -> Result<Self> {
         Ok(Backend::Android(android::AndroidBackend::new()?))
     }
 
     /// Use Android backend with configuration (Android only)
-    #[cfg(target_os = "android")]
+    #[cfg(all(feature = "backend-android", target_os = "android"))]
     pub fn android_with_config(config: BackendConfig) -> Result<Self> {
         Ok(Backend::Android(android::AndroidBackend::with_config(
             config,
@@ -145,6 +154,7 @@ impl Backend {
     }
 
     /// Use reqwest backend with configuration
+    #[cfg(feature = "backend-reqwest")]
     pub fn reqwest_with_config(config: BackendConfig) -> Result<Self> {
         Ok(Backend::Reqwest(reqwest::ReqwestBackend::with_config(
             config,
@@ -154,16 +164,19 @@ impl Backend {
     /// Execute an HTTP request
     pub async fn execute(&self, request: BackendRequest) -> Result<BackendResponse> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             Backend::Foundation(f) => f.execute(request).await,
 
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             Backend::Windows(w) => w.execute(request).await,
 
-            #[cfg(target_os = "android")]
+            #[cfg(all(feature = "backend-android", target_os = "android"))]
             Backend::Android(a) => a.execute(request).await,
 
+            #[cfg(feature = "backend-reqwest")]
             Backend::Reqwest(r) => r.execute(request).await,
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 
@@ -178,7 +191,7 @@ impl Backend {
         error_for_status: bool,
     ) -> Result<crate::client::download::DownloadResponse> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             Backend::Foundation(f) => {
                 f.execute_background_download(
                     url,
@@ -191,7 +204,7 @@ impl Backend {
                 .await
             }
 
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             Backend::Windows(w) => {
                 w.execute_background_download(
                     url,
@@ -204,7 +217,7 @@ impl Backend {
                 .await
             }
 
-            #[cfg(target_os = "android")]
+            #[cfg(all(feature = "backend-android", target_os = "android"))]
             Backend::Android(a) => {
                 a.execute_background_download(
                     url,
@@ -217,6 +230,7 @@ impl Backend {
                 .await
             }
 
+            #[cfg(feature = "backend-reqwest")]
             Backend::Reqwest(r) => {
                 r.execute_background_download(
                     url,
@@ -228,22 +242,27 @@ impl Backend {
                 )
                 .await
             }
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 
     /// Get the cookie jar if configured
     pub fn cookie_jar(&self) -> Option<&crate::CookieJar> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             Backend::Foundation(f) => f.cookie_jar(),
 
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             Backend::Windows(w) => w.cookie_jar(),
 
-            #[cfg(target_os = "android")]
+            #[cfg(all(feature = "backend-android", target_os = "android"))]
             Backend::Android(a) => a.cookie_jar(),
 
+            #[cfg(feature = "backend-reqwest")]
             Backend::Reqwest(r) => r.cookie_jar(),
+            #[allow(unreachable_patterns)]
+            _ => unreachable!("No backend available"),
         }
     }
 }
@@ -252,7 +271,7 @@ impl Backend {
 #[derive(Clone, Debug)]
 pub enum CookieStorage {
     /// Native Apple implementation using NSHTTPCookieStorage
-    #[cfg(target_vendor = "apple")]
+    #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     Foundation(foundation::FoundationCookieStorage),
 
     /// RFC 6265 compliant implementation using cookie_store
@@ -264,23 +283,24 @@ impl CookieStorage {
     /// Create a new cookie storage with default configuration
     pub fn new(backend: Backend) -> Self {
         match backend {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             Backend::Foundation(_) => {
                 CookieStorage::Foundation(foundation::FoundationCookieStorage::new())
             }
             // All non-Apple backends use the unified CookieStore implementation
-            #[cfg(windows)]
+            #[cfg(all(feature = "backend-winhttp", windows))]
             Backend::Windows(_) => CookieStorage::CookieStore(CookieStoreImpl::new()),
 
-            #[cfg(target_os = "android")]
+            #[cfg(all(feature = "backend-android", target_os = "android"))]
             Backend::Android(_) => CookieStorage::CookieStore(CookieStoreImpl::new()),
 
+            #[cfg(feature = "backend-reqwest")]
             Backend::Reqwest(_) => CookieStorage::CookieStore(CookieStoreImpl::new()),
         }
     }
 
     /// Create a new cookie storage for a group container (Apple only)
-    #[cfg(target_vendor = "apple")]
+    #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
     pub fn for_group_container(identifier: &str) -> Result<Self> {
         Ok(CookieStorage::Foundation(
             foundation::FoundationCookieStorage::for_group_container(identifier),
@@ -290,7 +310,7 @@ impl CookieStorage {
     /// Get all cookies
     pub fn all_cookies(&self) -> Vec<Cookie> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             CookieStorage::Foundation(storage) => storage.all_cookies(),
 
             CookieStorage::CookieStore(storage) => storage.all_cookies(),
@@ -300,7 +320,7 @@ impl CookieStorage {
     /// Get cookies for a specific URL
     pub fn cookies_for_url(&self, url: &str) -> Result<Vec<Cookie>> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             CookieStorage::Foundation(storage) => storage.cookies_for_url(url),
 
             CookieStorage::CookieStore(storage) => storage.cookies_for_url(url),
@@ -310,7 +330,7 @@ impl CookieStorage {
     /// Add a cookie
     pub fn add_cookie(&self, cookie: Cookie) -> Result<()> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             CookieStorage::Foundation(storage) => storage.add_cookie(cookie),
 
             CookieStorage::CookieStore(storage) => storage.add_cookie(cookie),
@@ -320,7 +340,7 @@ impl CookieStorage {
     /// Remove a cookie
     pub fn remove_cookie(&self, cookie: Cookie) -> Result<()> {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             CookieStorage::Foundation(storage) => storage.remove_cookie(cookie),
 
             CookieStorage::CookieStore(storage) => storage.remove_cookie(cookie),
@@ -330,7 +350,7 @@ impl CookieStorage {
     /// Clear all cookies
     pub fn clear(&self) {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             CookieStorage::Foundation(storage) => storage.clear(),
 
             CookieStorage::CookieStore(storage) => storage.clear(),
@@ -340,7 +360,7 @@ impl CookieStorage {
     /// Set cookie acceptance policy
     pub fn set_cookie_accept_policy(&self, policy: CookieAcceptPolicy) {
         match self {
-            #[cfg(target_vendor = "apple")]
+            #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
             CookieStorage::Foundation(storage) => storage.set_cookie_accept_policy(policy),
 
             CookieStorage::CookieStore(storage) => storage.set_cookie_accept_policy(policy),

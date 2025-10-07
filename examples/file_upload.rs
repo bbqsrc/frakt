@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test 1: Simple file upload
     let body = Body::from_file("test_upload.txt", Some("text/plain".to_string())).await?;
     let response = client
-        .post("https://httpbin.org/post")
+        .post("https://httpbin.org/post")?
         .body(body)
         .send()
         .await?;
@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let multipart_body = Body::multipart(parts);
 
     let response = client
-        .post("https://httpbin.org/post")
+        .post("https://httpbin.org/post")?
         .body(multipart_body)
         .send()
         .await?;

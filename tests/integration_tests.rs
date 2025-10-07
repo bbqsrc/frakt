@@ -10,12 +10,13 @@ use frakt::{Auth, BackendType, Client, CloseCode, Error, Message, Result};
 #[cfg(not(target_os = "android"))]
 fn backend() -> BackendType {
     match std::env::var("BACKEND").as_deref() {
-        #[cfg(target_vendor = "apple")]
+        #[cfg(all(feature = "backend-foundation", target_vendor = "apple"))]
         Ok("foundation") => BackendType::Foundation,
+        #[cfg(feature = "backend-reqwest")]
         Ok("reqwest") => BackendType::Reqwest,
-        #[cfg(windows)]
+        #[cfg(all(feature = "backend-winhttp", windows))]
         Ok("windows") => BackendType::Windows,
-        #[cfg(target_os = "android")]
+        #[cfg(all(feature = "backend-android", target_os = "android"))]
         Ok("android") => BackendType::Android,
         Ok(x) => panic!("Unknown BACKEND env var value: {:?}", x),
         Err(_) => panic!("Please set BACKEND env var to either 'foundation' or 'reqwest'"),
@@ -30,7 +31,7 @@ fn temp_dir() -> tempfile::TempDir {
     }
 }
 
-#[cfg(target_os = "android")]
+#[cfg(all(feature = "backend-android", target_os = "android"))]
 fn backend() -> BackendType {
     use std::sync::Once;
     static INIT: Once = Once::new();
@@ -67,7 +68,7 @@ async fn test_basic_get_request() -> Result<()> {
     assert!(text.contains("httpbin.org"));
 
     // Stop NetLog to finalize the file
-    #[cfg(target_os = "android")]
+    #[cfg(all(feature = "backend-android", target_os = "android"))]
     {
         let _ = frakt::backend::android::stop_netlog();
     }
@@ -717,7 +718,7 @@ async fn test_form_urlencoded_upload() -> Result<()> {
 }
 
 // // Cleanup function to stop NetLog - call this manually when done testing
-// #[cfg(target_os = "android")]
+// #[cfg(all(feature = "backend-android", target_os = "android"))]
 // #[allow(dead_code)]
 // fn stop_test_netlog() {
 //     if let Err(e) = frakt::backend::android::stop_netlog() {

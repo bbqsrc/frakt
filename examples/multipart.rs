@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Send multipart POST request
     let response = client
-        .post("https://httpbin.org/post")
+        .post("https://httpbin.org/post")?
         .body(multipart_body)
         .send()
         .await?;
